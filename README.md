@@ -12,4 +12,50 @@
 | 24441384 | Youhei Azuka Arya Arya | tera-A-A |
 
 ## Description
-Utilising Gazebo Harmanic to develop a simulation environment that would reflect the GOOSE dataset for robots and vehicles.
+To develop a 3D robotics simulation, using Gazebo Harmonic and/or Project Chrono, that realistically models deformable terrain and mining vehicle interaction, producing labelled simulation data suitable for comparison with real-world datasets. 
+
+## Repository Structure
+
+```
+CITS3200-AES/
+├── README.md                  # Project overview, setup, and run instructions
+├── .gitignore
+├── CMakeLists.txt             # Top-level build configuration
+│
+├── environments/
+│   ├── goose/                 # GOOSE-aligned environment
+│   │   ├── terrain/
+│   │   ├── vegetation/
+│   │   └── scene_config/
+│   │
+│   └── construction_zone/     # AARP-reflective construction zone environment
+│       ├── terrain/
+│       ├── vegetation/
+│       └── scene_config/
+│
+├── vehicles/
+│   ├── excavator/
+│   │   ├── model/
+│   │   └── articulation/
+│   └── bulldozer/
+│       ├── model/
+│       └── articulation/
+│
+├── sensors/
+│   ├── camera/
+│   └── lidar/
+│
+├── deformation/                # Terrain deformation logic (Chrono SCM config)
+│
+├── labelling/                  # Object/asset labelling & metadata export pipeline
+│
+├── src/                        # Core application code
+│   ├── main.cpp
+│   ├── vehicle_control/
+│   ├── terrain/
+│   └── sensors/
+│
+├── scripts/                    # Build/setup automation, run scripts
+│
+└── tests/                      # Validation/test scripts
+```
