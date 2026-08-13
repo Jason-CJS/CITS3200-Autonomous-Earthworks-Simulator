@@ -62,7 +62,7 @@ CITS3200-AES/
 
 ## Environment Setup (Conda)
 
-This project uses PyChrono for simulation. Dependencies are pinned via `environment.yml` to avoid version mismatches across machines.
+This project uses PyChrono 10.0.0 and Python 3.12 for simulation. Dependencies are pinned via `environment.yml` to avoid version mismatches across machines.
 
 ### Prerequisites
 - System running on native Linux or WSL2 with Ubuntu 24.04 LTS (Windows users)
@@ -90,7 +90,7 @@ This project uses PyChrono for simulation. Dependencies are pinned via `environm
 ```bash
    conda list pychrono
 ```
-   The pychrono version should be `8.0.0`
+   The pychrono version should be `10.0.0`
 
 ### Updating the environment
 If you install a new package required for the project:
