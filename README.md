@@ -59,3 +59,45 @@ CITS3200-AES/
 │
 └── tests/                      # Validation/test scripts
 ```
+
+## Environment Setup (Conda)
+
+This project uses PyChrono for simulation. Dependencies are pinned via `environment.yml` to avoid version mismatches across machines.
+
+### Prerequisites
+- System running on native Linux or WSL2 with Ubuntu 24.04 LTS (Windows users)
+- [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or Anaconda installed
+
+### Setup (from Linux terminal)
+
+1. Clone the repository:
+```bash
+   git clone https://github.com/<org-or-username>/CITS3200-Autonomous-Earthworks-Simulator
+   cd CITS3200-Autonomous-Earthworks-Simulator
+```
+
+2. Create the conda environment from the provided file:
+```bash
+   conda env create -f environment.yml
+```
+
+3. Activate the environment:
+```bash
+   conda activate chrono
+```
+
+4. Verify PyChrono is installed correctly:
+```bash
+   conda list pychrono
+```
+   The pychrono version should be `8.0.0`
+
+### Updating the environment
+If you install a new package required for the project:
+```bash
+conda env export --no-builds | grep -v "^prefix:" > environment.yml
+git add environment.yml
+git commit -m "Update environment.yml: added <package-name>"
+git push
+```
+Please avoid installing packages ad-hoc without updating `environment.yml` - this keeps everyone's environment in sync.
