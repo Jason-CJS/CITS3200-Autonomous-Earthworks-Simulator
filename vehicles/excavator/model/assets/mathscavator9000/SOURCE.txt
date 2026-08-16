@@ -1,0 +1,8 @@
+MathScavator9000 mesh source
+
+Copyright: The MathWorks, Inc. (see LICENSE.txt)
+Revision: aa35f433319895b3dbea0352a5c9495a23ef4c8e
+Meshes: https://github.com/mathworks-robotics/autonomous-excavator/tree/aa35f433319895b3dbea0352a5c9495a23ef4c8e/ExcavatorCADFiles/URDF_MathScavator9000_flat/MathScavator9000_flat/meshes
+URDF: https://github.com/mathworks-robotics/autonomous-excavator/blob/aa35f433319895b3dbea0352a5c9495a23ef4c8e/ExcavatorCADFiles/URDF_MathScavator9000_flat/MathScavator9000_flat/urdf/MathScavator9000_flat.SLDASM.urdf
+
+The large cabin mesh is not included. Its undercarriage, boom, stick, and bucket meshes are verified by SHA256SUMS.
