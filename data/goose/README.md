@@ -4,7 +4,7 @@ Raw GOOSE data used for the GOOSE-aligned environment's terrain
 generation pipeline. This directory is gitignored (except this file) --
 run `scripts/download_goose_data.sh` from the repo root to fetch it.
 
-## What's here
+## What's here (after running extraction script)
 
 **Validation split only** (2D images + labels, 3D point clouds) -- not
 the full training set. Training/test splits are an ML-training concept
