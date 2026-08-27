@@ -102,5 +102,10 @@ git push
 ```
 Please avoid installing packages ad-hoc without updating `environment.yml` - this keeps everyone's environment in sync.
 
+
 ### Downloading GOOSE dataset into local machine
-Because the GOOSE dataset in use to form the terrains are large, it's not included in this repo itself. Rather run `scripts/download_goose_data.sh` to fetch the GOOSE validation dataset into your respective local machines.
+Because the GOOSE dataset in use to form the terrains are large, it's not included in this repo itself. 
+Rather the below command to fetch the GOOSE validation dataset into your respective local machines:
+```bash
+   scripts/download_goose_data.sh
+```
