@@ -19,43 +19,93 @@
 #
 # =============================================================================
 
+import argparse
+import math
+from pathlib import Path
+
 import pychrono as chrono
-import pychrono.vehicle as veh
 import pychrono.irrlicht as irr
-import math as m
+import pychrono.vehicle as veh
 
-# =============================================================================
+from scm_deformation_export import (
+    calculate_scm_grid_geometry,
+    collect_deformation_records,
+    write_deformation_export,
+)
 
-class MyDriver (veh.ChDriver):
-	def __init__(self, vehicle, delay):
-		veh.ChDriver.__init__(self, vehicle)
-		self.delay = delay
-	def Synchronize(self, time):
-		eff_time = time - self.delay
-		if (eff_time < 0):
-		    return
 
-		if (eff_time > 0.2):
-			self.SetThrottle(0.7)
-		else:
-			self.SetThrottle(3.5 * eff_time)
+TERRAIN_LENGTH_M = 20.0
+TERRAIN_WIDTH_M = 10.0
+REQUESTED_GRID_SPACING_M = 0.15
+STEP_SIZE_S = 2e-3
+SIMULATION_DURATION_S = 6.0
 
-		if (eff_time < 2):
-			self.SetSteering(0.0)
-		else:
-			self.SetSteering(0.6 * m.sin(2.0 * m.pi * (eff_time - 2) / 6))
+GRID_GEOMETRY = calculate_scm_grid_geometry(
+    TERRAIN_LENGTH_M,
+    TERRAIN_WIDTH_M,
+    REQUESTED_GRID_SPACING_M,
+)
 
-		self.SetBraking(0.0)
+SOIL_PARAMETERS = {
+    "bekker_kphi": 2e6,
+    "bekker_kc": 0,
+    "bekker_n": 1.1,
+    "mohr_cohesion_pa": 0,
+    "mohr_friction_degrees": 30,
+    "janosi_shear_m": 0.01,
+    "elastic_stiffness_pa_per_m": 2e8,
+    "damping_pa_s_per_m": 3e4,
+}
 
-def main():
-    #print("Copyright (c) 2017 projectchrono.org\nChrono version: ", CHRONO_VERSION , "\n\n")
 
-    #  Create the HMMWV vehicle, set parameters, and initialize
+class MyDriver(veh.ChDriver):
+    def __init__(self, vehicle, delay):
+        veh.ChDriver.__init__(self, vehicle)
+        self.delay = delay
+
+    def Synchronize(self, time):
+        effective_time = time - self.delay
+        if effective_time < 0:
+            return
+
+        if effective_time > 0.2:
+            self.SetThrottle(0.7)
+        else:
+            self.SetThrottle(3.5 * effective_time)
+
+        if effective_time < 2:
+            self.SetSteering(0.0)
+        else:
+            self.SetSteering(
+                0.6 * math.sin(2.0 * math.pi * (effective_time - 2) / 6)
+            )
+
+        self.SetBraking(0.0)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run the HMMWV SCM terrain deformation demonstration."
+    )
+    parser.add_argument(
+        "--export-dir",
+        type=Path,
+        help="Optional directory for final deformation CSV and JSON files.",
+    )
+    return parser.parse_args()
+
+
+def create_vehicle():
     hmmwv = veh.HMMWV_Full()
     hmmwv.SetContactMethod(chrono.ChContactMethod_SMC)
-    hmmwv.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(-5, -2, 0.6), chrono.ChQuaterniond(1, 0, 0, 0)))
-    hmmwv.SetEngineType(veh.EngineModelType_SHAFTS);
-    hmmwv.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS);
+    hmmwv.SetInitPosition(
+        chrono.ChCoordsysd(
+            chrono.ChVector3d(-5, -2, 0.6),
+            chrono.ChQuaterniond(1, 0, 0, 0),
+        )
+    )
+    hmmwv.SetEngineType(veh.EngineModelType_SHAFTS)
+    hmmwv.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS)
     hmmwv.SetDriveType(veh.DrivelineTypeWV_AWD)
     hmmwv.SetTireType(veh.TireModelType_RIGID)
     hmmwv.Initialize()
@@ -67,88 +117,122 @@ def main():
     hmmwv.SetTireVisualizationType(chrono.VisualizationType_MESH)
 
     hmmwv.GetSystem().SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    return hmmwv
 
-    # Create the (custom) driver
+
+def create_terrain(system, chassis_body):
+    terrain = veh.SCMTerrain(system)
+    terrain.SetSoilParameters(
+        SOIL_PARAMETERS["bekker_kphi"],
+        SOIL_PARAMETERS["bekker_kc"],
+        SOIL_PARAMETERS["bekker_n"],
+        SOIL_PARAMETERS["mohr_cohesion_pa"],
+        SOIL_PARAMETERS["mohr_friction_degrees"],
+        SOIL_PARAMETERS["janosi_shear_m"],
+        SOIL_PARAMETERS["elastic_stiffness_pa_per_m"],
+        SOIL_PARAMETERS["damping_pa_s_per_m"],
+    )
+
+    terrain.AddActiveDomain(
+        chassis_body,
+        chrono.ChVector3d(0, 0, 0),
+        chrono.ChVector3d(5, 3, 1),
+    )
+    terrain.SetPlotType(veh.SCMTerrain.PLOT_SINKAGE, 0, 0.1)
+    terrain.Initialize(
+        TERRAIN_LENGTH_M,
+        TERRAIN_WIDTH_M,
+        REQUESTED_GRID_SPACING_M,
+    )
+    return terrain
+
+
+def create_visualization(hmmwv):
+    visualization = veh.ChWheeledVehicleVisualSystemIrrlicht()
+    visualization.SetWindowTitle("HMMWV Deformable Soil Demo")
+    visualization.SetWindowSize(960, 720)
+    visualization.SetChaseCamera(chrono.ChVector3d(0.0, 0.0, 1.75), 6.0, 0.5)
+    visualization.Initialize()
+    visualization.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
+    visualization.AddLightDirectional()
+    visualization.AddSkyBox()
+    visualization.AttachVehicle(hmmwv.GetVehicle())
+    return visualization
+
+
+def export_final_deformation(terrain, output_directory, simulation_duration_s):
+    modified_nodes = terrain.GetModifiedNodes(True)
+    records = collect_deformation_records(
+        modified_nodes,
+        GRID_GEOMETRY.actual_spacing_m,
+    )
+
+    simulation_settings = {
+        "vehicle": "HMMWV_Full",
+        "simulation_duration_s": simulation_duration_s,
+        "target_duration_s": SIMULATION_DURATION_S,
+        "step_size_s": STEP_SIZE_S,
+        "terrain": {
+            "requested_length_m": GRID_GEOMETRY.requested_length_m,
+            "requested_width_m": GRID_GEOMETRY.requested_width_m,
+            "requested_grid_spacing_m": GRID_GEOMETRY.requested_spacing_m,
+            "actual_grid_spacing_m": GRID_GEOMETRY.actual_spacing_m,
+            "grid_node_count_x": GRID_GEOMETRY.node_count_x,
+            "grid_node_count_y": GRID_GEOMETRY.node_count_y,
+        },
+        "soil_parameters": SOIL_PARAMETERS,
+    }
+    csv_path, summary_path = write_deformation_export(
+        records,
+        output_directory,
+        simulation_settings,
+    )
+    print(f"Exported {len(records)} modified SCM nodes to {csv_path}")
+    print(f"Exported deformation summary to {summary_path}")
+
+
+def main(export_directory=None):
+    hmmwv = create_vehicle()
+
     driver = MyDriver(hmmwv.GetVehicle(), 0.5)
     driver.Initialize()
 
-    # Create the SCM deformable terrain patch
-    terrain = veh.SCMTerrain(hmmwv.GetSystem())
-    terrain.SetSoilParameters(2e6,   # Bekker Kphi
-                              0,     # Bekker Kc
-                              1.1,   # Bekker n exponent
-                              0,     # Mohr cohesive limit (Pa)
-                              30,    # Mohr friction limit (degrees)
-                              0.01,  # Janosi shear coefficient (m)
-                              2e8,   # Elastic stiffness (Pa/m), before plastic yield
-                              3e4    # Damping (Pa s/m), proportional to negative vertical speed (optional)
-    )
-
-    # Optionally, enable active domains feature (single domain around vehicle chassis)
-    terrain.AddActiveDomain(hmmwv.GetChassisBody(), chrono.ChVector3d(0, 0, 0), chrono.ChVector3d(5, 3, 1))
-
-    # Set plot type for SCM (false color plotting)
-    terrain.SetPlotType(veh.SCMTerrain.PLOT_SINKAGE, 0, 0.1);
-
-    # Initialize the SCM terrain, specifying the initial mesh grid
-    terrain.Initialize(20.0, 10.0, delta)
-
-    # Create the vehicle Irrlicht interface
-    vis = veh.ChWheeledVehicleVisualSystemIrrlicht()
-    vis.SetWindowTitle('HMMWV Deformable Soil Demo')
-    vis.SetWindowSize(960, 720)
-    vis.SetChaseCamera(chrono.ChVector3d(0.0, 0.0, 1.75), 6.0, 0.5)
-    vis.Initialize()
-    vis.AddLogo(chrono.GetChronoDataFile('logo_chrono_alpha.png'))
-    vis.AddLightDirectional()
-    vis.AddSkyBox()
-    vis.AttachVehicle(hmmwv.GetVehicle())
+    terrain = create_terrain(hmmwv.GetSystem(), hmmwv.GetChassisBody())
+    visualization = create_visualization(hmmwv)
     realtime_timer = chrono.ChRealtimeStepTimer()
 
-    # Simulation loop
-    while vis.Run() :
+    while visualization.Run():
         time = hmmwv.GetSystem().GetChTime()
-
-        # End simulation
-        if (time >= 6):
+        if time >= SIMULATION_DURATION_S:
             break
 
-        # Draw scene
-        vis.BeginScene()
-        vis.Render()
-        vis.EndScene()
+        visualization.BeginScene()
+        visualization.Render()
+        visualization.EndScene()
 
-        # Get driver inputs
         driver_inputs = driver.GetInputs()
 
-
-        # Update modules (process inputs from other modules)
         driver.Synchronize(time)
         terrain.Synchronize(time)
         hmmwv.Synchronize(time, driver_inputs, terrain)
-        vis.Synchronize(time, driver_inputs)
+        visualization.Synchronize(time, driver_inputs)
 
-        # Advance simulation for one timestep for all modules
-        driver.Advance(step_size)
-        terrain.Advance(step_size)
-        hmmwv.Advance(step_size)
-        vis.Advance(step_size)
-        realtime_timer.Spin(step_size)
+        driver.Advance(STEP_SIZE_S)
+        terrain.Advance(STEP_SIZE_S)
+        hmmwv.Advance(STEP_SIZE_S)
+        visualization.Advance(STEP_SIZE_S)
+        realtime_timer.Spin(STEP_SIZE_S)
+
+    if export_directory is not None:
+        export_final_deformation(
+            terrain,
+            export_directory,
+            hmmwv.GetSystem().GetChTime(),
+        )
 
     return 0
 
 
-# SCM patch dimensions
-terrainHeight = 0
-terrainLength = 16.0  # size in X direction
-terrainWidth = 8.0    # size in Y direction
-
-# SCM grid spacing
-delta = 0.15
-
-# Simulation step sizes
-step_size = 2e-3;
-tire_step_size = 1e-3;
-
-
-main()
+if __name__ == "__main__":
+    arguments = parse_args()
+    raise SystemExit(main(arguments.export_dir))
