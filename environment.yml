@@ -1,0 +1,8 @@
+name: aes-pychrono
+channels:
+  - projectchrono
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pychrono=10.0.0
+  - pynput
