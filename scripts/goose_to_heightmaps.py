@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#Script to run build_heightmap.py and goose_environment.py and launch GUI
+#Script to run build_heightmap.py and goose_environment.py and launch graphical window
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DATA_ROOT = REPOSITORY_ROOT / "environments" / "goose" / "data"
 DATASET_ROOT = DATA_ROOT / "gooseEx_3d_val"
 GENERATED_ROOT = REPOSITORY_ROOT / "environments" / "goose" / "generated"
-DOWNLOADER = REPOSITORY_ROOT / "scripts" / "download_goose_ex.py"
 CONVERTER = (
     REPOSITORY_ROOT / "environments" / "goose" / "terrain" / "build_heightmap.py"
 )
@@ -122,10 +121,13 @@ def main() -> int:
     ensure_pychrono()
 
     if not dataset_is_ready(DATASET_ROOT):
-        print("GOOSE-Ex ALICE data is missing; downloading the 3D validation split.")
-        run([sys.executable, str(DOWNLOADER), "--split", "val"])
-    else:
-        print(f"Using existing GOOSE-Ex data: {DATASET_ROOT}")
+        raise FileNotFoundError(
+            "GOOSE-Ex ALICE data was not found in the expected location: "
+            f"{DATASET_ROOT}\n"
+            "The launcher requires goose_label_mapping.csv plus matching point-cloud "
+            "and label files under lidar/val and labels/val."
+        )
+    print(f"Using existing GOOSE-Ex data: {DATASET_ROOT}")
 
     pointcloud = select_pointcloud(
         DATASET_ROOT, args.scenario, args.sequence, args.frame_index
