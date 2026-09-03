@@ -1,2 +1,9 @@
+# Python
 __pycache__/
 *.py[cod]
+
+# GOOSE raw dataset -- ignore contents
+environments/goose/data/*
+!environments/goose/data/
+environments/goose/generated/*
+!environments/goose/generated/
