@@ -1,8 +1,12 @@
 name: chrono
+
 channels:
   - projectchrono
   - conda-forge
   - defaults
+
 dependencies:
   - python=3.12
   - pychrono=10.0.0
+  - "numpy>=1.26,<3"
+  - "scipy>=1.11,<2"
