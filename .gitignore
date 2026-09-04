@@ -1,2 +1,6 @@
 __pycache__/
 *.py[cod]
+
+# GOOSE raw dataset -- ignore contents, but track the README documenting it
+/data/goose/*
+!/data/goose/README.md
