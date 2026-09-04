@@ -2,7 +2,7 @@
 
 Raw GOOSE data used for the GOOSE-aligned environment's terrain
 generation pipeline. This directory is gitignored (except this file) --
-run `scripts/download_goose_data.sh` from the repo root to fetch it.
+run `scripts/download_goose_dataset.sh` from the repo root to fetch it.
 
 ## What's here (after running extraction script)
 
@@ -37,7 +37,7 @@ the Bundeswehr Munich / University of Koblenz.
 - Download page: https://goose-dataset.de/docs/setup/#download-dataset
 - Official repo (sample scripts this project's download script was
   adapted from): https://github.com/FraunhoferIOSB/goose_dataset
-- Direct URLs used by `scripts/download_goose_data.sh`:
+- Direct URLs used by `scripts/download_goose_dataset.sh`:
   - 2D: https://goose-dataset.de/storage/goose_2d_val.zip
   - 3D: https://goose-dataset.de/storage/goose_3d_val.zip
 
@@ -71,7 +71,7 @@ pipeline issue (depends on this one).
 ## Usage
 
 ```bash
-bash scripts/download_goose_data.sh
+bash scripts/download_goose_dataset.sh
 ```
 
 Safe to re-run -- already-downloaded splits are detected and skipped,

@@ -107,5 +107,5 @@ Please avoid installing packages ad-hoc without updating `environment.yml` - thi
 Because the GOOSE dataset in use to form the terrains are large, it's not included in this repo itself. 
 Rather the below command to fetch the GOOSE validation dataset into your respective local machines:
 ```bash
-   scripts/download_goose_data.sh
+   scripts/download_goose_dataset.sh
 ```

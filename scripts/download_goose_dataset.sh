@@ -22,8 +22,8 @@ set -euo pipefail
 
 # Resolve paths relative to the repo root (this script's parent directory),
 # not the caller's current working directory - so this works whether
-# it's run as `bash scripts/download_goose_data.sh` from repo root, or
-# `./download_goose_data.sh` from inside scripts/.
+# it's run as `bash scripts/download_goose_dataset.sh` from repo root, or
+# `./download_goose_dataset.sh` from inside scripts/.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="$REPO_ROOT/data/goose"
