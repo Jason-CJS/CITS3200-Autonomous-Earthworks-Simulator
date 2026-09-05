@@ -1,8 +1,14 @@
 import csv
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# Allow this file to be run directly from any working directory as well as through unittest discovery.
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from deformation.scm_deformation_export import (
     CSV_FIELDS,
