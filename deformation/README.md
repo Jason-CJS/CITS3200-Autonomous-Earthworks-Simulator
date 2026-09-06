@@ -20,6 +20,31 @@ python deformation/demo_hmmwv_scm.py
 
 The simulation runs automatically and closes after approximately six seconds of simulated time. No keyboard input is required.
 
+To export the final terrain deformation state as CSV and JSON files:
+
+```bash
+python deformation/demo_hmmwv_scm.py --export-dir outputs/hmmwv_scm
+```
+
+The command creates:
+
+- `deformation_nodes.csv`, containing one row for every SCM grid node modified since the simulation began;
+- `deformation_summary.json`, containing deformation metrics and the settings needed to interpret the output.
+
+The CSV records grid coordinates, world X/Y coordinates, initial and final
+height relative to the SCM reference plane, total height change, and sinkage.
+`height_change_m` is positive when a node rises and negative when it sinks.
+`sinkage_m` is positive downward and is zero for raised nodes.
+
+The JSON summary records the modified-node count, maximum and mean sinkage,
+simulation duration, timestep, requested terrain dimensions, requested and
+actual grid spacing, grid node counts, vehicle, and soil parameters. Chrono may
+slightly decrease the requested spacing so an integer number of cells spans
+the terrain. If no nodes were modified, the CSV contains only its header and
+all summary metrics are zero.
+
+Generated files under the top-level `outputs/` directory are ignored by Git.
+
 ## Expected behaviour
 
 When the demonstration runs:
@@ -50,7 +75,8 @@ The HMMWV produced clearly visible and persistent wheel tracks through direct ty
 
 ## Limitations
 
-- Validation is currently qualitative rather than based on measured sinkage.
+- The export contains only the final terrain state, not a time series.
+- Exported terrain states cannot currently be reloaded into a later simulation.
 - The test uses the HMMWV benchmark rather than an earthmoving vehicle.
 - The terrain begins as a flat patch.
 - False-colour rendering emphasises deformation and is not intended to represent final terrain materials.
