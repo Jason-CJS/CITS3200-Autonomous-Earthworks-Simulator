@@ -84,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
         "Autonomous Earthworks Simulator - Interactive Bulldozer",
         start + camera_offset,
         start + camera_target_offset,
+        controls=(
+            "W / S     Drive forward / reverse",
+            "A / D     Steer left / right",
+            "SPACE     Stop",
+            "R / F     Raise / lower blade",
+            "T / G     Tilt blade forward / back",
+            "X         Reset blade",
+        ),
         null_driver=args.smoke_test,
         balanced_lighting=True,
     )
@@ -101,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         keyboard.start()
 
     physics_step = 0.002
-    physics_steps_per_frame = 8
+    physics_steps_per_frame = 16
     frame_time = physics_step * physics_steps_per_frame
     scripted_drive_stopped = False
 
@@ -124,7 +132,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.smoke_test or capture_path is not None:
-            for _ in range(100 if capture_path is not None else 12):
+            for _ in range(50 if capture_path is not None else 12):
                 render_frame()
             if capture_path is not None:
                 visual.WriteImageToFile(str(capture_path))

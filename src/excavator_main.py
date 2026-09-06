@@ -79,6 +79,16 @@ def main(argv: list[str] | None = None) -> int:
         "Autonomous Earthworks Simulator - Interactive Excavator",
         chrono.ChVector3d(8.5, -11.0, 6.0),
         chrono.ChVector3d(1.8, 0.0, 1.2),
+        controls=(
+            "W / S     Drive forward / reverse",
+            "A / D     Steer left / right",
+            "SPACE     Stop",
+            "Q / E     Swing left / right",
+            "R / F     Raise / lower boom",
+            "T / G     Extend / retract arm",
+            "Y / H     Curl / uncurl bucket",
+            "X         Reset articulation",
+        ),
         null_driver=args.smoke_test,
     )
     keyboard = KeyboardState(("w", "q", "r", "t", "y") if args.smoke_test else ())
@@ -99,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         keyboard.start()
 
     physics_step = 0.002
-    physics_steps_per_frame = 8
+    physics_steps_per_frame = 16
     frame_time = physics_step * physics_steps_per_frame
     scripted_drive_stopped = False
 
@@ -119,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.smoke_test or capture_path is not None:
-            for _ in range(100 if capture_path is not None else 12):
+            for _ in range(50 if capture_path is not None else 12):
                 render_frame()
             if capture_path is not None:
                 visual.WriteImageToFile(str(capture_path))
