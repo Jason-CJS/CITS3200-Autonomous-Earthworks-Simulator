@@ -1,7 +1,8 @@
-name: aes-pychrono
+name: chrono
 channels:
   - projectchrono
   - conda-forge
+  - defaults
 dependencies:
   - python=3.12
   - pychrono=10.0.0
