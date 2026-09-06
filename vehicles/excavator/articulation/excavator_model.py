@@ -132,11 +132,15 @@ class ExcavatorModel:
         system: chrono.ChSystem,
         show_rigid_ground: bool = True,
         show_calibration_markers: bool = False,
+        initial_z_offset: float = 0.0,
     ) -> None:
         self.system = system
         initial_body_count = len(system.GetBodies())
         self.visual_calibration_path = ASSET_DIR / "visual_calibration.cfg"
         calibration = _load_calibration(self.visual_calibration_path)
+
+        def shifted(position: tuple[float, float, float]) -> tuple[float, float, float]:
+            return position[0], position[1], position[2] + initial_z_offset
 
         self.ground = make_box(
             system,
@@ -146,18 +150,28 @@ class ExcavatorModel:
             visible=show_rigid_ground,
         )
         self.ground.SetFixed(True)
-        self.chassis = make_box(system, (3.6, 2.4, 0.45), (0.0, 0.0, 0.75), (0.22, 0.22, 0.20))
-        self.cabin = make_box(system, (2.0, 1.8, 1.5), (0.0, 0.0, 1.75), YELLOW)
+        self.chassis = make_box(
+            system, (3.6, 2.4, 0.45), shifted((0.0, 0.0, 0.75)), (0.22, 0.22, 0.20)
+        )
+        self.cabin = make_box(system, (2.0, 1.8, 1.5), shifted((0.0, 0.0, 1.75)), YELLOW)
         self.left_track = make_box(
-            system, (0.20, 0.20, 0.20), (0.0, 1.35, 0.48), (0.12, 0.12, 0.12), visible=False
+            system,
+            (0.20, 0.20, 0.20),
+            shifted((0.0, 1.35, 0.48)),
+            (0.12, 0.12, 0.12),
+            visible=False,
         )
         self.right_track = make_box(
-            system, (0.20, 0.20, 0.20), (0.0, -1.35, 0.48), (0.12, 0.12, 0.12), visible=False
+            system,
+            (0.20, 0.20, 0.20),
+            shifted((0.0, -1.35, 0.48)),
+            (0.12, 0.12, 0.12),
+            visible=False,
         )
         _style_track_rotor(self.left_track)
         _style_track_rotor(self.right_track)
 
-        boom_pivot = (0.75, 0.0, 2.25)
+        boom_pivot = shifted((0.75, 0.0, 2.25))
         arm_pivot = (boom_pivot[0] + 6.24 * MATHSCAVATOR_SCALE, 0.0, boom_pivot[2])
         bucket_pivot = (
             arm_pivot[0] - 0.0091425 * MATHSCAVATOR_SCALE,

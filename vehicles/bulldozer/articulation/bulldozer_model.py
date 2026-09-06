@@ -213,9 +213,18 @@ def _add_imported_track(
 class BulldozerModel:
     """B10 asset-backed bulldozer with independent tracks and an articulated blade."""
 
-    def __init__(self, system: chrono.ChSystem, show_rigid_ground: bool = True) -> None:
+    def __init__(
+        self,
+        system: chrono.ChSystem,
+        show_rigid_ground: bool = True,
+        initial_z_offset: float = 0.0,
+    ) -> None:
         self.system = system
         initial_body_count = len(system.GetBodies())
+
+        def shifted(position: tuple[float, float, float]) -> tuple[float, float, float]:
+            return position[0], position[1], position[2] + initial_z_offset
+
         self.ground = make_box(
             system,
             (30.0, 20.0, 0.1),
@@ -231,18 +240,20 @@ class BulldozerModel:
         self._meshes = body_mesh, shoe_mesh, wheel_mesh
         self.imported_vertex_count = sum(mesh.GetNumVertices() for mesh in self._meshes)
 
-        self.chassis = _imported_body(system, (0.0, 0.0, 1.0), body_mesh)
+        self.chassis = _imported_body(system, shifted((0.0, 0.0, 1.0)), body_mesh)
         _add_chassis_details(self.chassis)
         _add_imported_track(self.chassis, 0.60, shoe_mesh, wheel_mesh)
         _add_imported_track(self.chassis, -0.60, shoe_mesh, wheel_mesh)
-        self.left_track = _track_rotor(system, (-0.80, 0.60, 0.45), wheel_mesh)
-        self.right_track = _track_rotor(system, (-0.80, -0.60, 0.45), wheel_mesh)
-        self.blade_carriage = make_box(system, (0.20, 1.30, 0.20), (-1.00, 0.0, 0.62), YELLOW)
+        self.left_track = _track_rotor(system, shifted((-0.80, 0.60, 0.45)), wheel_mesh)
+        self.right_track = _track_rotor(system, shifted((-0.80, -0.60, 0.45)), wheel_mesh)
+        self.blade_carriage = make_box(
+            system, (0.20, 1.30, 0.20), shifted((-1.00, 0.0, 0.62)), YELLOW
+        )
         _style_blade_carriage(self.blade_carriage)
         self.blade = make_box(
             system,
             (0.20, 1.95, 0.84),
-            (-1.62, 0.0, 0.62),
+            shifted((-1.62, 0.0, 0.62)),
             YELLOW,
             collidable=True,
         )
@@ -254,7 +265,7 @@ class BulldozerModel:
         self.left_track_drive.Initialize(
             self.left_track,
             self.chassis,
-            chrono.ChFramed(chrono.ChVector3d(-0.80, 0.60, 0.45), hinge_y),
+            chrono.ChFramed(chrono.ChVector3d(*shifted((-0.80, 0.60, 0.45))), hinge_y),
         )
         self.left_track_drive.SetSpeedFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.left_track_drive)
@@ -262,7 +273,7 @@ class BulldozerModel:
         self.right_track_drive.Initialize(
             self.right_track,
             self.chassis,
-            chrono.ChFramed(chrono.ChVector3d(-0.80, -0.60, 0.45), hinge_y),
+            chrono.ChFramed(chrono.ChVector3d(*shifted((-0.80, -0.60, 0.45))), hinge_y),
         )
         self.right_track_drive.SetSpeedFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.right_track_drive)
@@ -271,7 +282,7 @@ class BulldozerModel:
         self.blade_lift.Initialize(
             self.blade_carriage,
             self.chassis,
-            chrono.ChFramed(chrono.ChVector3d(-1.00, 0.0, 0.62)),
+            chrono.ChFramed(chrono.ChVector3d(*shifted((-1.00, 0.0, 0.62)))),
         )
         self.blade_lift.SetMotionFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.blade_lift)
@@ -279,7 +290,7 @@ class BulldozerModel:
         self.blade_tilt.Initialize(
             self.blade,
             self.blade_carriage,
-            chrono.ChFramed(chrono.ChVector3d(-1.38, 0.0, 0.62), hinge_y),
+            chrono.ChFramed(chrono.ChVector3d(*shifted((-1.38, 0.0, 0.62))), hinge_y),
         )
         self.blade_tilt.SetAngleFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.blade_tilt)
