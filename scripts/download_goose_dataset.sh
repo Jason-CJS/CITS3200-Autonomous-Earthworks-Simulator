@@ -88,14 +88,18 @@ else
     require_nonempty_dir "goose_2d_val_tmp/labels/val" "[goose 2D]"
 
     echo "[goose 2D] Validation passed. Moving into place..."
-    mkdir -p images/val labels/val
+    # Nested under 2d/ for symmetry with the 3d/ folder -- shared
+    # metadata files (CHANGELOG, LICENSE, goose_label_mapping.csv) stay
+    # at data/goose/ root since they aren't 2D-specific.
+    rm -rf 2d/images/val 2d/labels/val
+    mkdir -p 2d/images/val 2d/labels/val
 
     [ -f "goose_label_mapping.csv" ] || cp goose_2d_val_tmp/goose_label_mapping.csv .
     [ -f "CHANGELOG" ] || cp goose_2d_val_tmp/CHANGELOG . 2>/dev/null || true
     [ -f "LICENSE" ] || cp goose_2d_val_tmp/LICENSE . 2>/dev/null || true
 
-    mv goose_2d_val_tmp/images/val/* images/val/
-    mv goose_2d_val_tmp/labels/val/* labels/val/
+    mv goose_2d_val_tmp/images/val/* 2d/images/val/
+    mv goose_2d_val_tmp/labels/val/* 2d/labels/val/
 
     # Only reached if every step above succeeded -- set -e means any
     # failure (including a failed mv) stops the script here, before
@@ -130,6 +134,14 @@ else
     require_nonempty_dir "goose_3d_val_tmp/lidar/val" "[goose 3D]"
 
     echo "[goose 3D] Validation passed. Moving into place..."
+    # Clear any leftover partial move targets from a prior interrupted
+    # run before moving -- reaching this point means .goose_3d_val_complete
+    # is missing, so anything already at these paths is from an
+    # unvalidated attempt and shouldn't block a clean retry. Without
+    # this, `mv` refuses to move a directory onto one that already
+    # exists, permanently stalling recovery if e.g. the labels move
+    # succeeded but the lidar move failed on a previous run.
+    rm -rf 3d/labels/val 3d/lidar/val
     mkdir -p 3d/labels 3d/lidar
     mv goose_3d_val_tmp/labels/val 3d/labels/
     mv goose_3d_val_tmp/lidar/val 3d/lidar/
@@ -142,5 +154,5 @@ fi
 
 echo ""
 echo "GOOSE validation split ready under $DATA_DIR/"
-echo "  2D: $DATA_DIR/images/val, $DATA_DIR/labels/val"
+echo "  2D: $DATA_DIR/2d/images/val, $DATA_DIR/2d/labels/val"
 echo "  3D: $DATA_DIR/3d/labels/val, $DATA_DIR/3d/lidar/val"
