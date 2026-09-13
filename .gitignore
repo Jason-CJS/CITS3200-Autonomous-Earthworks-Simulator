@@ -3,3 +3,4 @@ __pycache__/
 
 # Generated simulation exports
 /outputs/
+/semantic_outputs/
