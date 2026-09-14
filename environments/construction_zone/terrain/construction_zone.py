@@ -31,7 +31,7 @@ import pychrono.irrlicht as irr
 
 TERRAIN_LENGTH = 20.0   # size in X direction (m)
 TERRAIN_WIDTH = 20.0    # size in Y direction (m)
-DELTA = 0.15            # SCM grid spacing (m) 
+DELTA = 0.15            # SCM grid spacing (m)
 
 STEP_SIZE = 2e-3
 
@@ -44,9 +44,9 @@ def create_system():
     this one. Either:
     1. Keep this function as the single source of the system (recommended)
     2. If a vehicle's default constructor is used instead:
-    	fetch the 'system' it creates via vehicle.GetSystem()
-    	pass that into create_terrain() instead. Two independently
-    	created systems will not interact with each other.
+       fetch the 'system' it creates via vehicle.GetSystem()
+       pass that into create_terrain() instead. Two independently
+       created systems will not interact with each other.
     """
     system = chrono.ChSystemSMC()
     system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
@@ -60,7 +60,7 @@ def create_terrain(system):
 
     Soil parameters are tentative placeholders.
     To be revisited with AARP-specific values here if/when real soil
-    data becomes available. 
+    data becomes available.
     """
     terrain = veh.SCMTerrain(system)
 
@@ -86,7 +86,7 @@ def add_static_objects(system):
     """
     Placeholder for static scene geometry:
     e.g Ramps, stockpiles, or a temporary test body to visually confirm
-    SCM deformation is live before a real vehicle is wired in. 
+    SCM deformation is live before a real vehicle is wired in.
     """
     pass
 
