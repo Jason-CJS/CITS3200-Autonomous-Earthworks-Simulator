@@ -20,20 +20,40 @@ from scenarios.bulldozer_earthmoving.terrain_profile import (
     calculate_hole_metrics,
     write_profile_heightmap,
 )
+from scenarios.bulldozer_earthmoving.visualisation import (
+    write_terrain_comparison,
+)
 from src.demo_common import create_visual_system
 from vehicles.bulldozer.articulation.bulldozer_model import BulldozerModel
 
 
 STEP_SIZE_S = 0.002
 PHYSICS_STEPS_PER_FRAME = 16
-DEFAULT_DRIVE_DURATION_S = 3.00
+DEFAULT_DRIVE_DURATION_S = 2.40
 SETTLE_DURATION_S = 0.50
 
 TERRAIN_REFERENCE_HEIGHT_M = 0.15
 TRACK_SPEED = 0.45
-BLADE_LIFT_M = -0.08
+BLADE_LIFT_M = -0.04
+BLADE_RELEASE_LIFT_M = 0.02
+BLADE_RELEASE_START_S = 1.75
 BLADE_TILT_RAD = 0.08
+BLADE_RAISE_DURATION_S = 0.20
+MIN_AVERAGE_HEIGHT_INCREASE_M = 0.001
+MIN_MODIFIED_NODES_IN_HOLE = 10
 
+def meets_success_criteria(
+    modified_node_count: int,
+    average_height_increase_m: float,
+    modified_node_count_in_hole: int,
+) -> bool:
+    return (
+        modified_node_count > 0
+        and average_height_increase_m
+        >= MIN_AVERAGE_HEIGHT_INCREASE_M
+        and modified_node_count_in_hole
+        >= MIN_MODIFIED_NODES_IN_HOLE
+    )
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -91,9 +111,6 @@ def create_terrain(
     terrain.EnableBulldozing(True)
     terrain.SetBulldozingParameters(55.0, 1.0, 3, 4)
     terrain.SetTestHeight(0.20)
-    terrain.SetPlotType(vehicle.SCMTerrain.PLOT_NONE, 0.0, 0.20)
-    terrain.SetColor(chrono.ChColor(0.30, 0.18, 0.08))
-    terrain.SetMeshWireframe(False)
     terrain.Initialize(
         str(heightmap_path.resolve()),
         profile.length_m,
@@ -102,6 +119,12 @@ def create_terrain(
         profile.height_max_m,
         profile.grid_spacing_m,
     )
+    terrain.SetPlotType(
+        vehicle.SCMTerrain.PLOT_LEVEL,
+        profile.height_min_m,
+        profile.height_max_m,
+    )
+    terrain.SetMeshWireframe(False)
     return terrain
 
 
@@ -109,8 +132,8 @@ def create_visualisation(system: chrono.ChSystem):
     return create_visual_system(
         system,
         "Autonomous Earthworks Simulator - Scripted Hole Filling",
-        chrono.ChVector3d(-0.5, -7.0, 3.0),
-        chrono.ChVector3d(-2.6, 0.0, 0.15),
+        chrono.ChVector3d(0.5, -7.5, 5.5),
+        chrono.ChVector3d(-1.6, -0.7, 0.15),
         balanced_lighting=True,
     )
 
@@ -127,10 +150,22 @@ def advance_simulation(
     terrain: vehicle.SCMTerrain,
     duration_s: float,
     visualisation=None,
+    blade_lift_range: tuple[float, float] | None = None,
 ) -> None:
     step_count = math.ceil(duration_s / STEP_SIZE_S)
 
     for step_index in range(step_count):
+        if blade_lift_range is not None:
+            start_lift_m, end_lift_m = blade_lift_range
+            progress = (step_index + 1) / step_count
+            blade_lift_m = (
+                start_lift_m
+                + (end_lift_m - start_lift_m) * progress
+            )
+            bulldozer.set_blade_targets(
+                blade_lift_m,
+                BLADE_TILT_RAD,
+            )
         if (
             visualisation is not None
             and step_index % PHYSICS_STEPS_PER_FRAME == 0
@@ -158,13 +193,14 @@ def run_scenario(
     output_directory: Path,
     drive_duration_s: float,
     headless: bool,
+    profile: TerrainProfile | None = None,
 ) -> int:
     if drive_duration_s <= 0:
         raise ValueError("drive duration must be greater than zero")
 
     output_directory.mkdir(parents=True, exist_ok=True)
 
-    profile = TerrainProfile()
+    profile = profile or TerrainProfile()
     heightmap_path = write_profile_heightmap(
         profile,
         output_directory / "purpose_built_heightmap.bmp",
@@ -185,13 +221,50 @@ def run_scenario(
     bulldozer.set_blade_targets(BLADE_LIFT_M, BLADE_TILT_RAD)
     bulldozer.set_drive_speeds(TRACK_SPEED, TRACK_SPEED)
 
+    collection_duration_s = min(
+        drive_duration_s,
+        BLADE_RELEASE_START_S,
+    )
     advance_simulation(
         system,
         bulldozer,
         terrain,
-        drive_duration_s,
+        collection_duration_s,
         visualisation,
     )
+
+    remaining_drive_s = drive_duration_s - collection_duration_s
+    raise_duration_s = min(
+        remaining_drive_s,
+        BLADE_RAISE_DURATION_S,
+    )
+
+    if raise_duration_s > 0:
+        advance_simulation(
+            system,
+            bulldozer,
+            terrain,
+            raise_duration_s,
+            visualisation,
+            blade_lift_range=(
+                BLADE_LIFT_M,
+                BLADE_RELEASE_LIFT_M,
+            ),
+        )
+
+    remaining_drive_s -= raise_duration_s
+    if remaining_drive_s > 0:
+        bulldozer.set_blade_targets(
+            BLADE_RELEASE_LIFT_M,
+            BLADE_TILT_RAD,
+        )
+        advance_simulation(
+            system,
+            bulldozer,
+            terrain,
+            remaining_drive_s,
+            visualisation,
+        )
 
     bulldozer.set_drive_speeds(0.0, 0.0)
     advance_simulation(
@@ -219,6 +292,13 @@ def run_scenario(
         initial_grid,
         final_grid,
     )
+    comparison_path = write_terrain_comparison(
+        profile,
+        initial_grid,
+        final_grid,
+        hole_metrics,
+        output_directory / "terrain_comparison.png",
+    )
 
     settings = {
         "scenario": "scripted_bulldozer_hole_filling",
@@ -227,7 +307,10 @@ def run_scenario(
         "drive_duration_s": drive_duration_s,
         "settle_duration_s": SETTLE_DURATION_S,
         "track_speed": TRACK_SPEED,
-        "blade_lift_m": BLADE_LIFT_M,
+        "blade_collection_lift_m": BLADE_LIFT_M,
+        "blade_release_lift_m": BLADE_RELEASE_LIFT_M,
+        "blade_release_start_s": BLADE_RELEASE_START_S,
+        "blade_raise_duration_s": BLADE_RAISE_DURATION_S,
         "blade_tilt_rad": BLADE_TILT_RAD,
         "terrain_reference_height_m": TERRAIN_REFERENCE_HEIGHT_M,
         "terrain_profile": asdict(profile),
@@ -238,9 +321,10 @@ def run_scenario(
         settings,
     )
 
-    passed = (
-        len(records) > 0
-        and hole_metrics["average_height_increase_m"] > 0
+    passed = meets_success_criteria(
+        len(records),
+        hole_metrics["average_height_increase_m"],
+        hole_metrics["modified_node_count_in_hole"],
     )
     scenario_summary = {
         "format_version": 1,
@@ -249,6 +333,13 @@ def run_scenario(
         "modified_node_count": len(records),
         "hole_metrics": hole_metrics,
         "simulation_settings": settings,
+        "terrain_comparison": comparison_path.name,
+        "acceptance_thresholds": {
+            "minimum_average_height_increase_m":
+                MIN_AVERAGE_HEIGHT_INCREASE_M,
+            "minimum_modified_nodes_in_hole":
+                MIN_MODIFIED_NODES_IN_HOLE,
+        },
     }
     scenario_summary_path = output_directory / "hole_fill_summary.json"
     scenario_summary_path.write_text(
@@ -281,11 +372,16 @@ def run_scenario(
     if not records:
         print("FAILED: no SCM deformation was recorded.")
         return 2
-    if increase <= 0:
-        print("FAILED: average terrain height inside the hole did not increase.")
-        return 3
+    if not passed:
+        print(
+            "FAILED: hole filling did not meet the minimum "
+            f"{MIN_AVERAGE_HEIGHT_INCREASE_M * 1000:.1f} mm "
+            f"average increase and {MIN_MODIFIED_NODES_IN_HOLE} "
+            "modified target nodes."
+        )
 
-    print("PASSED: average terrain height inside the hole increased.")
+    print("PASSED: hole-filling acceptance thresholds were met.")
+    print(f"Terrain comparison: {comparison_path}")
     return 0
 
 

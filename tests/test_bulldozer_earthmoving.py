@@ -13,6 +13,9 @@ from scenarios.bulldozer_earthmoving.terrain_profile import (
     write_profile_heightmap,
 )
 
+from scenarios.bulldozer_earthmoving.run_scenario import (
+    meets_success_criteria,
+)
 
 class BulldozerEarthmovingTests(unittest.TestCase):
     def setUp(self):
@@ -93,6 +96,20 @@ class BulldozerEarthmovingTests(unittest.TestCase):
     def test_rejects_invalid_height_range(self):
         with self.assertRaises(ValueError):
             height_to_grayscale(0.0, 1.0, 1.0)
+
+    def test_acceptance_criteria_reject_noise_and_sparse_changes(self):
+        self.assertTrue(
+            meets_success_criteria(1295, 0.00209, 14)
+        )
+        self.assertFalse(
+            meets_success_criteria(1230, 0.00007, 3)
+        )
+        self.assertFalse(
+            meets_success_criteria(1295, 0.00209, 9)
+        )
+        self.assertFalse(
+            meets_success_criteria(0, 0.00209, 14)
+        )
 
 
 if __name__ == "__main__":

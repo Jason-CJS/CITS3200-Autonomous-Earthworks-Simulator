@@ -23,18 +23,19 @@ class TerrainProfile:
     width_m: float = 8.0
     grid_spacing_m: float = 0.10
     height_min_m: float = -0.14
-    height_max_m: float = 0.16
+    height_max_m: float = 0.26
 
-    hole_center_x_m: float = -1.75
-    hole_center_y_m: float = -1.50
-    hole_radius_m: float = 0.55
+    hole_center_x_m: float = -2.85
+    hole_center_y_m: float = 0.0
+    hole_radius_m: float = 0.40
     hole_depth_m: float = 0.08
-    hole_sigma_m: float = 0.45
+    hole_sigma_m: float = 0.32
 
     mound_center_x_m: float = -2.00
     mound_center_y_m: float = 0.0
-    mound_height_m: float = 0.14
-    mound_sigma_m: float = 0.45
+    mound_height_m: float = 0.22
+    mound_sigma_x_m: float = 0.35
+    mound_sigma_y_m: float = 0.75
 
     @property
     def geometry(self):
@@ -52,8 +53,16 @@ class TerrainProfile:
             + ((y_m - self.hole_center_y_m) / self.hole_sigma_m) ** 2
         )
         mound_distance = (
-            ((x_m - self.mound_center_x_m) / self.mound_sigma_m) ** 2
-            + ((y_m - self.mound_center_y_m) / self.mound_sigma_m) ** 2
+            (
+                (x_m - self.mound_center_x_m)
+                / self.mound_sigma_x_m
+            )
+            ** 2
+            + (
+                (y_m - self.mound_center_y_m)
+                / self.mound_sigma_y_m
+            )
+            ** 2
         )
 
         height = (
