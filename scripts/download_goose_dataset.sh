@@ -1,26 +1,30 @@
 #!/bin/bash
 #
-# Downloads the GOOSE dataset validation split (2D images + labels, and
-# 3D point clouds) needed for the GOOSE-aligned environment terrain
-# pipeline. Adapted from the official sample script at
-# https://github.com/FraunhoferIOSB/goose_dataset/blob/main/scripts/download_goose.sh
+# Downloads the GOOSE-Ex (ALICE) 3D point cloud validation split needed
+# for the GOOSE terrain generation pipeline. Replaces the earlier base
+# GOOSE download -- superseded per team decision (client meeting,
+# GOOSE-Ex confirmed as the single environment going forward).
 #
-# Deliberately uses the VALIDATION split only, not the full training set:
-# - Training/test splits are an ML-training concept this project doesn't
-#   need -- we're extracting real terrain shape from a handful of real
-#   scenes, not training a segmentation model.
-# - Validation is properly labeled (test split is unlabeled -- raw
-#   images / xyzi points only, per the dataset's own docs) and is a
-#   fraction of the size of training (~3GB vs ~27GB for 3D).
+# Scoped to 3D only: the terrain pipeline this feeds only consumes
+# point clouds + labels, not 2D images. GOOSE-Ex 2D download is
+# deferred to the separate labels/manifest export issue if/when that's
+# picked up -- not needed here.
 #
-# Extraction is validated BEFORE being treated as complete: each split
-# is extracted into a temporary directory first, checked for the
-# specific files/folders it's expected to contain, and only moved into
-# its final location -- with a completion marker written -- once that
-# validation passes. Idempotency checks on re-run look for the
-# completion marker, not just directory existence, so a partial/failed
-# prior run is correctly re-attempted rather than silently treated as
-# done.
+# Output structure is deliberately flat (matching what the terrain
+# pipeline's build_heightmap.py / goose_to_heightmaps.py already expect
+# internally, just rooted here instead of under environments/goose/data/):
+#
+#   data/goose/
+#     goose_label_mapping.csv
+#     lidar/val/<scenario>/*.bin
+#     labels/val/<scenario>/*.label
+#
+# Confirmed from a real download: the zip contains its own top-level
+# gooseEx_3d_val/ folder (not flat), with goose_label_mapping.csv,
+# lidar/val/, and labels/val/ inside that.
+#
+# NOTE: the download URL below (gooseEx_3d_val.zip) is inferred by
+# analogy and was confirmed working via a real successful download.
 #
 # Data license: CC BY-SA 4.0 (attribution + share-alike required).
 # See data/goose/README.md for full citation and license details.
@@ -33,8 +37,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="$REPO_ROOT/data/goose"
 
-GOOSE_2D_URL="https://goose-dataset.de/storage/goose_2d_val.zip"
-GOOSE_3D_URL="https://goose-dataset.de/storage/goose_3d_val.zip"
+GOOSE_EX_3D_URL="https://goose-dataset.de/storage/gooseEx_3d_val.zip"
 
 mkdir -p "$DATA_DIR"
 cd "$DATA_DIR"
@@ -45,7 +48,6 @@ fail() {
 }
 
 # require_nonempty_dir <path> <description>
-# Exits non-zero if the given directory doesn't exist or contains no files.
 require_nonempty_dir() {
     local path="$1"
     local desc="$2"
@@ -67,92 +69,57 @@ require_file() {
 }
 
 # -----------------------------------------------------------------------
-# 2D images + labels (validation split)
+# GOOSE-Ex 3D point clouds (validation split)
 # -----------------------------------------------------------------------
-if [ -f ".goose_2d_val_complete" ]; then
-    echo "[goose 2D] Already present and validated, skipping download."
+if [ -f ".gooseEx_3d_val_complete" ]; then
+    echo "[gooseEx 3D] Already present and validated, skipping download."
 else
-    echo "[goose 2D] Downloading validation split..."
+    echo "[gooseEx 3D] Downloading validation split..."
 
-    if [ ! -f "goose_2d_val.zip" ]; then
-        wget "$GOOSE_2D_URL"
+    if [ ! -f "gooseEx_3d_val.zip" ]; then
+        wget "$GOOSE_EX_3D_URL"
     fi
 
-    echo "[goose 2D] Unzipping..."
-    rm -rf goose_2d_val_tmp
-    unzip -q goose_2d_val.zip -d goose_2d_val_tmp
+    echo "[gooseEx 3D] Unzipping..."
+    rm -rf gooseEx_3d_val_tmp
+    unzip -q gooseEx_3d_val.zip -d gooseEx_3d_val_tmp
 
-    echo "[goose 2D] Validating extracted contents..."
-    require_file "goose_2d_val_tmp/goose_label_mapping.csv" "[goose 2D]"
-    require_nonempty_dir "goose_2d_val_tmp/images/val" "[goose 2D]"
-    require_nonempty_dir "goose_2d_val_tmp/labels/val" "[goose 2D]"
+    # Confirmed from a real extraction: the zip contains its own
+    # gooseEx_3d_val/ subfolder rather than extracting flat -- i.e. the
+    # real content sits at gooseEx_3d_val_tmp/gooseEx_3d_val/..., not
+    # gooseEx_3d_val_tmp/... directly.
+    EXTRACTED="gooseEx_3d_val_tmp/gooseEx_3d_val"
 
-    echo "[goose 2D] Validation passed. Moving into place..."
-    # Nested under 2d/ for symmetry with the 3d/ folder -- shared
-    # metadata files (CHANGELOG, LICENSE, goose_label_mapping.csv) stay
-    # at data/goose/ root since they aren't 2D-specific.
-    rm -rf 2d/images/val 2d/labels/val
-    mkdir -p 2d/images/val 2d/labels/val
+    echo "[gooseEx 3D] Validating extracted contents..."
+    require_file "$EXTRACTED/goose_label_mapping.csv" "[gooseEx 3D]"
+    require_nonempty_dir "$EXTRACTED/lidar/val" "[gooseEx 3D]"
+    require_nonempty_dir "$EXTRACTED/labels/val" "[gooseEx 3D]"
 
-    [ -f "goose_label_mapping.csv" ] || cp goose_2d_val_tmp/goose_label_mapping.csv .
-    [ -f "CHANGELOG" ] || cp goose_2d_val_tmp/CHANGELOG . 2>/dev/null || true
-    [ -f "LICENSE" ] || cp goose_2d_val_tmp/LICENSE . 2>/dev/null || true
+    echo "[gooseEx 3D] Validation passed. Moving into place..."
+    # Clear any leftover partial move targets from a prior interrupted
+    # run before moving -- reaching this point means the completion
+    # marker is missing, so anything already at these paths is from an
+    # unvalidated attempt and shouldn't block a clean retry.
+    rm -rf lidar/val labels/val
+    mkdir -p lidar labels
 
-    mv goose_2d_val_tmp/images/val/* 2d/images/val/
-    mv goose_2d_val_tmp/labels/val/* 2d/labels/val/
+    [ -f "goose_label_mapping.csv" ] || cp "$EXTRACTED/goose_label_mapping.csv" .
+    [ -f "CHANGELOG" ] || cp "$EXTRACTED/CHANGELOG" . 2>/dev/null || true
+    [ -f "LICENSE" ] || cp "$EXTRACTED/LICENSE" . 2>/dev/null || true
+
+    mv "$EXTRACTED/lidar/val" lidar/
+    mv "$EXTRACTED/labels/val" labels/
 
     # Only reached if every step above succeeded -- set -e means any
-    # failure (including a failed mv) stops the script here, before
-    # cleanup and before the completion marker is written.
-    rm -rf goose_2d_val_tmp goose_2d_val.zip
-    touch .goose_2d_val_complete
+    # failure stops the script here, before cleanup and before the
+    # completion marker is written.
+    rm -rf gooseEx_3d_val_tmp gooseEx_3d_val.zip
+    touch .gooseEx_3d_val_complete
 
-    echo "[goose 2D] Done."
-fi
-
-# -----------------------------------------------------------------------
-# 3D point clouds (validation split)
-#
-# Confirmed structure from a real download: the zip contains its own
-# labels/val/ and lidar/val/ subfolders.
-# -----------------------------------------------------------------------
-if [ -f ".goose_3d_val_complete" ]; then
-    echo "[goose 3D] Already present and validated, skipping download."
-else
-    echo "[goose 3D] Downloading validation split..."
-
-    if [ ! -f "goose_3d_val.zip" ]; then
-        wget "$GOOSE_3D_URL"
-    fi
-
-    echo "[goose 3D] Unzipping..."
-    rm -rf goose_3d_val_tmp
-    unzip -q goose_3d_val.zip -d goose_3d_val_tmp
-
-    echo "[goose 3D] Validating extracted contents..."
-    require_nonempty_dir "goose_3d_val_tmp/labels/val" "[goose 3D]"
-    require_nonempty_dir "goose_3d_val_tmp/lidar/val" "[goose 3D]"
-
-    echo "[goose 3D] Validation passed. Moving into place..."
-    # Clear any leftover partial move targets from a prior interrupted
-    # run before moving -- reaching this point means .goose_3d_val_complete
-    # is missing, so anything already at these paths is from an
-    # unvalidated attempt and shouldn't block a clean retry. Without
-    # this, `mv` refuses to move a directory onto one that already
-    # exists, permanently stalling recovery if e.g. the labels move
-    # succeeded but the lidar move failed on a previous run.
-    rm -rf 3d/labels/val 3d/lidar/val
-    mkdir -p 3d/labels 3d/lidar
-    mv goose_3d_val_tmp/labels/val 3d/labels/
-    mv goose_3d_val_tmp/lidar/val 3d/lidar/
-
-    rm -rf goose_3d_val_tmp goose_3d_val.zip
-    touch .goose_3d_val_complete
-
-    echo "[goose 3D] Done."
+    echo "[gooseEx 3D] Done."
 fi
 
 echo ""
-echo "GOOSE validation split ready under $DATA_DIR/"
-echo "  2D: $DATA_DIR/2d/images/val, $DATA_DIR/2d/labels/val"
-echo "  3D: $DATA_DIR/3d/labels/val, $DATA_DIR/3d/lidar/val"
+echo "GOOSE-Ex 3D validation split ready under $DATA_DIR/"
+echo "  $DATA_DIR/lidar/val, $DATA_DIR/labels/val"
+echo "  $DATA_DIR/goose_label_mapping.csv"
