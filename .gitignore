@@ -1,9 +1,8 @@
-# Python
 __pycache__/
 *.py[cod]
 
-# GOOSE raw dataset -- ignore contents
-environments/goose/data/*
-!environments/goose/data/
-environments/goose/generated/*
-!environments/goose/generated/
+# GOOSE raw dataset -- ignore contents, but track the README documenting it
+/data/goose/*
+!/data/goose/README.md
+# Generated simulation exports
+/outputs/

@@ -1,3 +1,4 @@
+import sys
 import json
 import struct
 import tempfile
@@ -7,7 +8,12 @@ from pathlib import Path
 
 import numpy as np
 
-from environments.goose.terrain import build_heightmap as converter
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+TERRAIN_ROOT = REPOSITORY_ROOT / "environments" / "terrain"
+sys.path.insert(0, str(TERRAIN_ROOT))
+
+import build_heightmap as converter
+import goose_dataset as dataset
 
 
 class GooseHeightmapTests(unittest.TestCase):
@@ -69,9 +75,9 @@ class GooseHeightmapTests(unittest.TestCase):
 
     def test_build_scene_selects_real_goose_ex_naming_layout(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory) / "gooseEx_3d_val"
-            lidar = root / "lidar" / "val" / "alice_scenario02"
-            labels = root / "labels" / "val" / "alice_scenario02"
+            root = Path(directory) / "data" / "goose"
+            lidar = root / "3d" / "val" / "lidar" / "val" / "alice_scenario02"
+            labels = root / "3d" / "val" / "labels" / "val" / "alice_scenario02"
             lidar.mkdir(parents=True)
             labels.mkdir(parents=True)
             prefix = "alice_scenario02_sequence07_0000_123"
@@ -90,9 +96,9 @@ class GooseHeightmapTests(unittest.TestCase):
     def test_end_to_end_scene_generation(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
-            root = temporary / "gooseEx_3d_val"
-            lidar = root / "lidar" / "val" / "alice_scenario02"
-            labels = root / "labels" / "val" / "alice_scenario02"
+            root = temporary / "data" / "goose"
+            lidar = root / "3d" / "val" / "lidar" / "val" / "alice_scenario02"
+            labels = root / "3d" / "val" / "labels" / "val" / "alice_scenario02"
             lidar.mkdir(parents=True)
             labels.mkdir(parents=True)
             prefix = "alice_scenario02_sequence07_0000_123"
