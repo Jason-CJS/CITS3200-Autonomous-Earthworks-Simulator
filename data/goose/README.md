@@ -1,45 +1,42 @@
-# GOOSE Dataset (validation split)
+# GOOSE-Ex (ALICE) Dataset (validation split)
 
-Raw GOOSE data used for the GOOSE-aligned environment's terrain
-generation pipeline. This directory is gitignored (except this file) --
-run `scripts/download_goose_dataset.sh` from the repo root to fetch it.
+Raw GOOSE-Ex 3D point cloud data used for the GOOSE terrain generation
+pipeline. This directory is gitignored (except this file). Run
+`scripts/download_goose_dataset.sh` from the repo root to fetch it.
 
-## What's here (after running extraction script)
+## What's here (after running the extraction script)
 
-**Validation split only** (2D images + labels, 3D point clouds) -- not
-the full training set. Training/test splits are an ML-training concept
-this project doesn't need: we're extracting real terrain shape from a
-handful of real scenes to build a heightmap, not training a
-segmentation model. Validation is fully labeled and a fraction of the
-size of training (~3GB vs ~27GB for the 3D data). The test split was
-not usable here regardless -- it ships unlabeled (raw images / xyzi
-points only).
+**3D point clouds only, validation split.** Not 2D images -- the
+terrain pipeline this feeds only consumes point clouds + labels. 2D
+GOOSE-Ex download is deferred to a separate labels/manifest export
+issue if/when that's picked up. Not the training/test splits -- same
+reasoning as before: we're extracting real terrain shape from a
+handful of real scenes, not training a segmentation model, and
+validation is fully labeled where test is not.
 
 ```
 data/goose/
 ├── CHANGELOG
-├── goose_label_mapping.csv   # 64-class -> 11-coarse-category taxonomy
+├── goose_label_mapping.csv   # class taxonomy
 ├── LICENSE
-├── images/val/                # 2D RGB images
-├── labels/val/                # 2D per-pixel semantic labels
-└── 3d/
-    └── val/
-        ├── labels/val/         # per-scenario point cloud labels
-        └── lidar/val/          # per-scenario LiDAR point clouds
+├── lidar/val/<scenario>/      # per-scenario LiDAR point clouds (.bin)
+└── labels/val/<scenario>/     # per-scenario point cloud labels (.label)
 ```
 
 ## Source
 
-Official GOOSE dataset, published by Fraunhofer IOSB / University of
-the Bundeswehr Munich / University of Koblenz.
+Official GOOSE-Ex dataset, published by Fraunhofer IOSB / University
+of the Bundeswehr Munich / University of Koblenz -- an extension of
+the base GOOSE dataset, recorded from ALICE (a modified Liebherr R924
+excavator) and a Boston Dynamics Spot quadruped, covering construction
+sites, quarries, and landfill environments.
 
 - Website: https://goose-dataset.de/
 - Download page: https://goose-dataset.de/docs/setup/#download-dataset
 - Official repo (sample scripts this project's download script was
   adapted from): https://github.com/FraunhoferIOSB/goose_dataset
-- Direct URLs used by `scripts/download_goose_dataset.sh`:
-  - 2D: https://goose-dataset.de/storage/goose_2d_val.zip
-  - 3D: https://goose-dataset.de/storage/goose_3d_val.zip
+- Direct URL used by `scripts/download_goose_dataset.sh`:
+  - 3D: https://goose-dataset.de/storage/gooseEx_3d_val.zip
 
 ## License and attribution
 
@@ -47,26 +44,17 @@ The **data** is published under **CC BY-SA 4.0** (attribution +
 share-alike required). The official repo's code (which this project's
 download script is adapted from) is MIT licensed.
 
-If this data is used in any report or publication, cite:
-
-```
-@article{goose-dataset,
-    author = {Peter Mortimer and Raphael Hagmanns and Miguel Granero
-              and Thorsten Luettel and Janko Petereit and Hans-Joachim Wuensche},
-    title = {The GOOSE Dataset for Perception in Unstructured Environments},
-    url={https://arxiv.org/abs/2310.16788},
-    conference={2024 IEEE International Conference on Robotics and Automation (ICRA)}
-    year = 2024
-}
-```
+If this data is used in any report or publication, cite the GOOSE-Ex
+paper (check the official site/repo for the exact citation -- this
+project's earlier base-GOOSE citation does not necessarily apply
+as-is to GOOSE-Ex, and hasn't been separately confirmed).
 
 ## Class taxonomy
 
-`goose_label_mapping.csv` maps GOOSE's 64 fine-grained semantic classes
-to 11 coarse categories (e.g. Vegetation, Terrain, Vehicle). Turning
-these labels into terrain/vegetation placement decisions is out of
-scope for this download step -- see the GOOSE terrain-generation
-pipeline issue (depends on this one).
+`goose_label_mapping.csv` maps GOOSE-Ex's semantic classes for this
+scene. Turning these labels into terrain/vegetation placement
+decisions is out of scope for this download step -- see the GOOSE
+terrain-generation pipeline for how `lidar/`/`labels/` are consumed.
 
 ## Usage
 
@@ -74,5 +62,5 @@ pipeline issue (depends on this one).
 bash scripts/download_goose_dataset.sh
 ```
 
-Safe to re-run -- already-downloaded splits are detected and skipped,
-not re-fetched.
+Safe to re-run -- an already-downloaded, validated split is detected
+via a completion marker and skipped, not re-fetched.
