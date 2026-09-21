@@ -33,7 +33,7 @@ The launcher automatically:
 
 1. discovers `lidar/` directory beneath `data/goose/`;
 2. selects a scenario with matching 3D labels, preferring `val`, then `train`, then `test`;
-3. converts the selected frame if its scene is missing, uses an older conversion profile, or comes from a different source; and
+3. converts the selected frame if its scene is missing, comes from a different source, or was generated with different quality settings; and
 4. opens the generated SCM environment in Irrlicht.
 
 Scenarios are selected alphabetically within the chosen split. Pass `--scenario`
@@ -50,6 +50,70 @@ To force heightmap regeneration or perform a non-graphical check:
 python scripts/goose_to_heightmaps.py --rebuild
 python scripts/goose_to_heightmaps.py --headless
 ```
+
+### Quality presets
+
+The launcher and direct converter provide three quality presets. Each preset
+controls both the heightmap cell size and the Chrono SCM grid spacing. Smaller
+values preserve more terrain detail but require more processing and simulation
+work.
+
+| Preset | Heightmap resolution | SCM grid spacing | Intended use |
+| --- | ---: | ---: | --- |
+| `low` | 0.30 m | 0.30 m | Faster iteration and lower resource use |
+| `balanced` | 0.15 m | 0.15 m | General use and the default behaviour |
+| `high` | 0.10 m | 0.10 m | Higher terrain detail where performance permits |
+
+When `--quality` is omitted, `balanced` is selected. For each setting, precedence
+is: an explicit individual override, the selected preset, then the `balanced`
+default.
+
+Select a preset with `--quality`:
+
+```bash
+python scripts/goose_to_heightmaps.py --quality low
+python scripts/goose_to_heightmaps.py --quality high --headless
+```
+
+The optional `--resolution` and `--grid-spacing` arguments override only their
+corresponding preset values:
+
+```bash
+python scripts/goose_to_heightmaps.py \
+  --quality balanced \
+  --resolution 0.20 \
+  --grid-spacing 0.12
+```
+
+The selected preset, resolved values and explicit overrides are recorded in
+`scene.json`. The launcher regenerates a cached scene whenever this quality
+configuration changes.
+
+#### Representative benchmark
+
+The presets were compared using GOOSE-Ex `alice_scenario02`, sequence 07,
+frame 0, with fixed 40 m by 40 m bounds. Testing used Python 3.12.14,
+PyChrono 10.0.0 and WSL2 with llvmpipe software rendering.
+
+| Preset | Raster grid | Generation time | Grid file | Effective FPS | Peak memory |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `low` | 135 × 135 | 0.40 s | 142.5 KB | 28.5 | 359.5 MB |
+| `balanced` | 268 × 268 | 0.99 s | 561.2 KB | 12.1 | 418.1 MB |
+| `high` | 401 × 401 | 1.39 s | 1,256.4 KB | 6.4 | 439.3 MB |
+
+The graphical results are medians from three runs of approximately 250 rendered
+frames at 1280 × 720. Effective FPS includes process and terrain initialization,
+so the figures are intended as relative comparisons rather than precise
+in-engine frame rates. Generation times were initial validation runs rather
+than repeated measurements.
+
+The `low` preset was approximately 2.4 times faster than `balanced` and used
+about 14% less peak memory, but appeared blockier and lost smaller terrain
+features. The `high` preset retained additional fine surface variation, but
+produced about 47% lower effective FPS than `balanced` and used about 5% more
+peak memory. These results cover one scene on one software-rendered machine
+without a vehicle or active deformation workload, so performance will vary
+between systems.
 
 ## What the first version provides
 
@@ -192,9 +256,9 @@ Each selected frame has its own output folder. A compatible generated scene is
 reused on later runs. Use `--rebuild` to force regeneration. Scenes produced by
 earlier converter versions are rebuilt once with the fixed ground filter.
 
-Useful direct-converter tuning options also include `--bounds`, `--resolution`,
-`--height-percentile`, and `--smooth-passes`. Run either script with `--help`
-for full descriptions.
+Useful direct-converter tuning options also include `--quality`, `--bounds`,
+`--resolution`, `--grid-spacing`, `--height-percentile`, and
+`--smooth-passes`. Run either script with `--help` for full descriptions.
 
 ## 2. Load the environment in Chrono
 
