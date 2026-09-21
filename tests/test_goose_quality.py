@@ -9,7 +9,7 @@ TERRAIN_ROOT = REPOSITORY_ROOT / "environments" / "terrain"
 sys.path.insert(0, str(TERRAIN_ROOT))
 
 from goose_quality import resolve_quality
-
+from goose_quality import scm_grid_spacing_from_scene
 
 class GooseQualityTests(unittest.TestCase):
     def test_default_is_balanced(self):
@@ -110,7 +110,34 @@ class GooseQualityTests(unittest.TestCase):
             with self.subTest(option="grid_spacing", value=value):
                 with self.assertRaises(ValueError):
                     resolve_quality(grid_spacing=value)
+    def test_scene_grid_spacing_uses_resolved_quality(self):
+        scene = {
+            "quality": resolve_quality("high").to_manifest(),
+        }
 
+        self.assertEqual(
+            scm_grid_spacing_from_scene(scene, fallback=0.15),
+            0.10,
+        )
+
+    def test_legacy_scene_grid_spacing_uses_fallback(self):
+        self.assertEqual(
+            scm_grid_spacing_from_scene({}, fallback=0.15),
+            0.15,
+        )
+
+    def test_malformed_scene_quality_is_rejected(self):
+        scene = {
+            "quality": {
+                "preset": "high",
+            },
+        }
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "resolved SCM grid spacing",
+        ):
+            scm_grid_spacing_from_scene(scene, fallback=0.15)
 
 if __name__ == "__main__":
     unittest.main()

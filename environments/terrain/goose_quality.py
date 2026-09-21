@@ -99,3 +99,19 @@ def resolve_quality(
         scm_grid_spacing=scm_grid_spacing,
         overrides=tuple(overrides),
     )
+
+def scm_grid_spacing_from_scene(scene: dict, fallback: float) -> float:
+    """Return SCM spacing from quality metadata, or fallback for legacy scenes."""
+    quality = scene.get("quality")
+
+    if quality is None:
+        return _positive_finite(fallback, "SCM grid spacing")
+
+    try:
+        spacing = quality["resolved"]["scm_grid_spacing"]
+    except (KeyError, TypeError):
+        raise ValueError(
+            "Scene quality metadata does not contain a resolved SCM grid spacing"
+        ) from None
+
+    return _positive_finite(spacing, "SCM grid spacing")

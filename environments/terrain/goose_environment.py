@@ -14,6 +14,11 @@ import pychrono.vehicle as veh
 SCRIPT_ROOT = Path(__file__).resolve().parent
 DEFAULT_SCM_CONFIG = SCRIPT_ROOT.parent / "scene_config" / "alice_scm.json"
 
+if __package__:
+    from .goose_quality import scm_grid_spacing_from_scene
+else:
+    from goose_quality import scm_grid_spacing_from_scene
+
 
 def load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as source:
@@ -54,13 +59,18 @@ def create_terrain(
     if config.get("visualization", {}).get("plot_sinkage", False):
         terrain.SetPlotType(veh.SCMTerrain.PLOT_SINKAGE, 0.0, 0.15)
 
+    grid_spacing = scm_grid_spacing_from_scene(
+        scene,
+        float(config["grid_spacing"]),
+    )
+
     terrain.Initialize(
         str(heightmap_path),
         float(scene["size_x"]),
         float(scene["size_y"]),
         float(scene["height_min"]),
         float(scene["height_max"]),
-        float(config["grid_spacing"]),
+        grid_spacing,
     )
     return terrain
 
