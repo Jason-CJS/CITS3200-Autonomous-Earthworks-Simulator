@@ -149,7 +149,7 @@ python -m py_compile \
 * The current result is a measurable partial fill from one pass, not a completely filled hole.
 * The bulldozer chassis movement is prescribed from the track commands. Contact-generated traction, track slip and individual track-shoe dynamics are not currently simulated.
 * The soil parameters are suitable for demonstrating SCM interaction but have not been calibrated against AARP site measurements.
-* The current scenario uses a deterministic purpose-built heightmap. Adapting it to GOOSE-derived terrain remains dependent on completion and alignment of the GOOSE terrain pipeline.
+* The current scenario intentionally uses a deterministic purpose-built heightmap so the target mound and hole are reproducible. Loading vehicles into GOOSE-derived terrain and associating runs with semantic outputs is tracked separately by Issue #26, after the semantic maps and manifest in Issue #22 are available.
 * Software rendering may be required when running Irrlicht under WSL.
 
 ## Relevant files
