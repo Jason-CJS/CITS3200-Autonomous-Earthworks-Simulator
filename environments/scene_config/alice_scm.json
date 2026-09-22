@@ -1,0 +1,19 @@
+{
+  "step_size": 0.002,
+  "grid_spacing": 0.15,
+  "scm": {
+    "bekker_kphi": 2000000.0,
+    "bekker_kc": 0.0,
+    "bekker_n": 1.1,
+    "mohr_cohesion": 0.0,
+    "mohr_friction_degrees": 30.0,
+    "janosi_shear": 0.01,
+    "elastic_stiffness": 200000000.0,
+    "damping": 30000.0,
+    "enable_bulldozing": true
+  },
+  "visualization": {
+    "plot_sinkage": false
+  },
+  "notes": "Initial generic SCM values. GOOSE labels identify surface class but do not provide measured terramechanics parameters. Calibrate these values separately for the intended soil."
+}
