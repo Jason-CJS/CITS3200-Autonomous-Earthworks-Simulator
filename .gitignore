@@ -1,5 +1,8 @@
+build/
+build-*/
 __pycache__/
 *.py[cod]
+.pytest_cache/
 
 # GOOSE raw dataset -- ignore contents, but track the README documenting it
 /data/goose/*
