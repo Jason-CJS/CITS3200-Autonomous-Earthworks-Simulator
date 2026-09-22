@@ -100,6 +100,7 @@ def resolve_quality(
         overrides=tuple(overrides),
     )
 
+
 def scm_grid_spacing_from_scene(scene: dict, fallback: float) -> float:
     """Return SCM spacing from quality metadata, or fallback for legacy scenes."""
     quality = scene.get("quality")

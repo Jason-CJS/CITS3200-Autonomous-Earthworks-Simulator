@@ -11,6 +11,7 @@ sys.path.insert(0, str(TERRAIN_ROOT))
 from goose_quality import resolve_quality
 from goose_quality import scm_grid_spacing_from_scene
 
+
 class GooseQualityTests(unittest.TestCase):
     def test_default_is_balanced(self):
         quality = resolve_quality()
@@ -110,6 +111,7 @@ class GooseQualityTests(unittest.TestCase):
             with self.subTest(option="grid_spacing", value=value):
                 with self.assertRaises(ValueError):
                     resolve_quality(grid_spacing=value)
+
     def test_scene_grid_spacing_uses_resolved_quality(self):
         scene = {
             "quality": resolve_quality("high").to_manifest(),
@@ -138,6 +140,7 @@ class GooseQualityTests(unittest.TestCase):
             "resolved SCM grid spacing",
         ):
             scm_grid_spacing_from_scene(scene, fallback=0.15)
+
 
 if __name__ == "__main__":
     unittest.main()
