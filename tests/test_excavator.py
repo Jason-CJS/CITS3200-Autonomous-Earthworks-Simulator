@@ -45,6 +45,39 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
             f"moved {displacement:.6f} m, and reached all four joint targets."
         )
 
+    def test_initial_z_offset_moves_all_motor_frames(self) -> None:
+        offset = -0.15
+
+        baseline = ExcavatorModel(
+            chrono.ChSystemSMC(),
+            show_rigid_ground=False,
+        )
+        shifted = ExcavatorModel(
+            chrono.ChSystemSMC(),
+            show_rigid_ground=False,
+            initial_z_offset=offset,
+        )
+
+        baseline_motors = (
+            *baseline.joints,
+            baseline.left_track_drive,
+            baseline.right_track_drive,
+        )
+        shifted_motors = (
+            *shifted.joints,
+            shifted.left_track_drive,
+            shifted.right_track_drive,
+        )
+
+        for index, (baseline_motor, shifted_motor) in enumerate(
+            zip(baseline_motors, shifted_motors, strict=True)
+        ):
+            for frame_getter in ("GetFrame1Abs", "GetFrame2Abs"):
+                with self.subTest(motor=index, frame=frame_getter):
+                    baseline_z = getattr(baseline_motor, frame_getter)().GetPos().z
+                    shifted_z = getattr(shifted_motor, frame_getter)().GetPos().z
+                    self.assertAlmostEqual(shifted_z, baseline_z + offset)
+
     def test_imported_asset_hashes_match_manifest(self) -> None:
         manifest = ASSET_DIR / "SHA256SUMS"
         for line in manifest.read_text(encoding="utf-8").splitlines():

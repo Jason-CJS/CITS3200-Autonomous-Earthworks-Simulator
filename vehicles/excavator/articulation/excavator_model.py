@@ -235,7 +235,12 @@ class ExcavatorModel:
         self.drive = DifferentialDrive(system, self.chassis, self.ground, 2.7)
         hinge_y = chrono.QuatFromAngleX(chrono.CH_PI_2)
         self.joints = [
-            make_angle_motor(system, self.cabin, self.chassis, (0.0, 0.0, 1.0)),
+            make_angle_motor(
+                system,
+                self.cabin,
+                self.chassis,
+                shifted((0.0, 0.0, 1.0)),
+            ),
             make_angle_motor(system, self.boom, self.cabin, boom_pivot, hinge_y),
             make_angle_motor(system, self.arm, self.boom, arm_pivot, hinge_y),
             make_angle_motor(system, self.bucket, self.arm, bucket_pivot, hinge_y),
@@ -245,7 +250,10 @@ class ExcavatorModel:
         self.left_track_drive.Initialize(
             self.left_track,
             self.chassis,
-            chrono.ChFramed(chrono.ChVector3d(0.0, 1.35, 0.48), hinge_y),
+            chrono.ChFramed(
+                vector(shifted((0.0, 1.35, 0.48))),
+                hinge_y,
+            ),
         )
         self.left_track_drive.SetSpeedFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.left_track_drive)
@@ -253,7 +261,10 @@ class ExcavatorModel:
         self.right_track_drive.Initialize(
             self.right_track,
             self.chassis,
-            chrono.ChFramed(chrono.ChVector3d(0.0, -1.35, 0.48), hinge_y),
+            chrono.ChFramed(
+                vector(shifted((0.0, -1.35, 0.48))),
+                hinge_y,
+            ),
         )
         self.right_track_drive.SetSpeedFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.right_track_drive)
