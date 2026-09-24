@@ -42,9 +42,9 @@ python environments/goose/terrain/build_heightmap.py \
   --frame-index 10
 ```
 
-Useful tuning options include `--bounds`, `--resolution`,
-`--height-percentile`, `--smooth-passes`, and `--ground-classes`. Run the
-script with `--help` for their full descriptions.
+Useful tuning options include `--quality`, `--bounds`, `--resolution`,
+`--grid-spacing`, `--height-percentile`, `--smooth-passes`, and
+`--ground-classes`. Run the script with `--help` for their full descriptions.
 
 ## 2. Load the environment in Chrono
 

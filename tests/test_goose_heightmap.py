@@ -119,7 +119,9 @@ class GooseHeightmapTests(unittest.TestCase):
                 sequence="07",
                 frame_index=0,
                 bounds=(-2.0, 2.0, -2.0, 2.0),
+                quality="balanced",
                 resolution=0.2,
+                grid_spacing=None,
                 height_percentile=20.0,
                 smooth_passes=1,
                 ground_classes=["soil"],
@@ -129,6 +131,20 @@ class GooseHeightmapTests(unittest.TestCase):
             scene = json.loads(scene_path.read_text(encoding="utf-8"))
 
             self.assertEqual(scene["source"]["platform"], "ALICE")
+            self.assertEqual(
+                scene["quality"],
+                {
+                    "preset": "balanced",
+                    "resolved": {
+                        "terrain_resolution": 0.2,
+                        "scm_grid_spacing": 0.15,
+                    },
+                    "overrides": {
+                        "terrain_resolution": 0.2,
+                    },
+                },
+            )
+            self.assertEqual(scene["grid"]["requested_spacing"], 0.2)
             self.assertEqual(scene["conversion"]["ground_class_ids"], [31])
             self.assertEqual(scene["conversion"]["ground_points_used"], len(points))
             self.assertTrue((scene_path.parent / scene["heightmap"]).is_file())

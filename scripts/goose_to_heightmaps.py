@@ -25,6 +25,13 @@ from goose_dataset import (
     select_frame,
 )
 
+from goose_quality import (
+    DEFAULT_QUALITY_PRESET,
+    QUALITY_PRESET_NAMES,
+    ResolvedQuality,
+    resolve_quality,
+)
+
 DATASET_ROOT = REPOSITORY_ROOT / "data" / "goose"
 GENERATED_ROOT = REPOSITORY_ROOT / "outputs" / "goose"
 CONVERTER = REPOSITORY_ROOT / "environments" / "terrain" / "build_heightmap.py"
@@ -56,7 +63,11 @@ def scene_path_for(pointcloud: Path) -> Path:
     return GENERATED_ROOT / frame_name_for(pointcloud) / "scene.json"
 
 
-def scene_matches_source(scene_path: Path, frame: SelectedFrame) -> bool:
+def scene_matches_source(
+    scene_path: Path,
+    frame: SelectedFrame,
+    quality: ResolvedQuality,
+) -> bool:
     """Rebuild older scenes or a scene generated from a different input dataset."""
     try:
         scene = json.loads(scene_path.read_text(encoding="utf-8"))
@@ -68,11 +79,45 @@ def scene_matches_source(scene_path: Path, frame: SelectedFrame) -> bool:
             (root / source["pointcloud"]).resolve() == frame.pointcloud
             and (root / source["labels"]).resolve() == frame.label
             and mapping == frame.mapping
+            and scene.get("quality") == quality.to_manifest()
             and (scene_path.parent / scene["heightmap"]).is_file()
             and (scene_path.parent / scene["height_grid"]).is_file()
         )
     except (OSError, ValueError, KeyError, TypeError):
         return False
+
+
+def build_converter_command(
+    args: argparse.Namespace,
+    dataset_root: Path,
+    frame: SelectedFrame,
+    quality: ResolvedQuality,
+) -> list[str]:
+    command = [
+        sys.executable,
+        str(CONVERTER),
+        "--dataset",
+        str(dataset_root),
+        "--split",
+        frame.scenario.split,
+        "--scenario",
+        frame.scenario.name,
+        "--frame-index",
+        str(args.frame_index),
+        "--quality",
+        quality.preset,
+    ]
+
+    if args.sequence:
+        command.extend(("--sequence", args.sequence))
+    if args.mapping is not None:
+        command.extend(("--mapping", str(frame.mapping)))
+    if args.resolution is not None:
+        command.extend(("--resolution", str(args.resolution)))
+    if args.grid_spacing is not None:
+        command.extend(("--grid-spacing", str(args.grid_spacing)))
+
+    return command
 
 
 def ensure_pychrono() -> None:
@@ -114,6 +159,27 @@ def parse_args() -> argparse.Namespace:
         help="zero-based labelled frame within the selected scenario/sequence",
     )
     parser.add_argument(
+        "--quality",
+        choices=QUALITY_PRESET_NAMES,
+        default=DEFAULT_QUALITY_PRESET,
+        help=(
+            "performance and terrain-detail preset "
+            f"(default: {DEFAULT_QUALITY_PRESET})"
+        ),
+    )
+    parser.add_argument(
+        "--resolution",
+        type=float,
+        default=None,
+        help="override the heightmap resolution selected by --quality, in metres",
+    )
+    parser.add_argument(
+        "--grid-spacing",
+        type=float,
+        default=None,
+        help="override the SCM grid spacing selected by --quality, in metres",
+    )
+    parser.add_argument(
         "--rebuild", action="store_true",
         help="regenerate the heightmap even when scene.json already exists",
     )
@@ -148,6 +214,12 @@ def main() -> int:
         print(scenario_listing(selected))
         return 0
 
+    quality = resolve_quality(
+        args.quality,
+        args.resolution,
+        args.grid_spacing,
+    )
+
     frame = select_frame(
         dataset_root, args.split, args.scenario, args.sequence, args.frame_index
     )
@@ -158,22 +230,23 @@ def main() -> int:
         frame = replace(frame, mapping=mapping)
     print(f"Selected {frame.scenario.split}/{frame.scenario.name}: {frame.pointcloud.name}")
     print(f"3D labels: {frame.label}")
+    print(f"Quality preset: {quality.preset}")
+    print(f"Terrain resolution: {quality.terrain_resolution:g} m")
+    print(f"SCM grid spacing: {quality.scm_grid_spacing:g} m")
+    print(f"Overrides: {', '.join(quality.overrides) or 'none'}")
     ensure_pychrono()
     scene_path = scene_path_for(frame.pointcloud)
 
-    if args.rebuild or not scene_matches_source(scene_path, frame):
+    if args.rebuild or not scene_matches_source(
+        scene_path, frame, quality
+    ):
         print(f"Generating Chrono terrain from {frame.pointcloud.name}")
-        converter_command = [
-            sys.executable, str(CONVERTER),
-            "--dataset", str(dataset_root),
-            "--split", frame.scenario.split,
-            "--scenario", frame.scenario.name,
-            "--frame-index", str(args.frame_index),
-        ]
-        if args.sequence:
-            converter_command.extend(("--sequence", args.sequence))
-        if args.mapping:
-            converter_command.extend(("--mapping", str(frame.mapping)))
+        converter_command = build_converter_command(
+            args,
+            dataset_root,
+            frame,
+            quality,
+        )
         run(converter_command)
     else:
         print(f"Using existing generated scene: {scene_path}")

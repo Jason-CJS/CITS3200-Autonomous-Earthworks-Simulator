@@ -16,8 +16,18 @@ import numpy as np
 
 if __package__:
     from .goose_dataset import frame_name_for, select_frame
+    from .goose_quality import (
+        DEFAULT_QUALITY_PRESET,
+        QUALITY_PRESET_NAMES,
+        resolve_quality,
+    )
 else:
     from goose_dataset import frame_name_for, select_frame
+    from goose_quality import (
+        DEFAULT_QUALITY_PRESET,
+        QUALITY_PRESET_NAMES,
+        resolve_quality,
+    )
 
 
 # Official 64-class GOOSE ontology. The CSV included with each dataset is still
@@ -430,6 +440,11 @@ def write_grayscale_bmp(path: Path, pixels: np.ndarray) -> None:
 
 def build_scene(args: argparse.Namespace) -> Path:
     dataset_root = args.dataset.expanduser().resolve()
+    quality = resolve_quality(
+        args.quality,
+        args.resolution,
+        args.grid_spacing,
+    )
     frame = select_frame(
         dataset_root, args.split, args.scenario, args.sequence, args.frame_index
     )
@@ -452,7 +467,7 @@ def build_scene(args: argparse.Namespace) -> Path:
         semantic,
         ground_ids,
         bounds,
-        args.resolution,
+        quality.terrain_resolution,
         args.height_percentile,
         args.smooth_passes,
     )
@@ -470,6 +485,7 @@ def build_scene(args: argparse.Namespace) -> Path:
     xmin, xmax, ymin, ymax = bounds
     metadata = {
         "format_version": 1,
+        "quality": quality.to_manifest(),
         "source": {
             "dataset": "GOOSE/GOOSE-Ex",
             "platform": (
@@ -503,7 +519,7 @@ def build_scene(args: argparse.Namespace) -> Path:
         "grid": {
             "width": int(pixels.shape[1]),
             "height": int(pixels.shape[0]),
-            "requested_spacing": args.resolution,
+            "requested_spacing": quality.terrain_resolution,
             "x_spacing": (xmax - xmin) / (pixels.shape[1] - 1),
             "y_spacing": (ymax - ymin) / (pixels.shape[0] - 1),
             "observed_fraction": float(observed.mean()),
@@ -569,10 +585,25 @@ def parse_args() -> argparse.Namespace:
         help="crop in the local LiDAR frame, in metres",
     )
     parser.add_argument(
+        "--quality",
+        choices=QUALITY_PRESET_NAMES,
+        default=DEFAULT_QUALITY_PRESET,
+        help=(
+            "performance and terrain-detail preset "
+            f"(default: {DEFAULT_QUALITY_PRESET})"
+        ),
+    )
+    parser.add_argument(
         "--resolution",
         type=float,
-        default=0.15,
-        help="requested heightmap/SCM spacing in metres (default: 0.15)",
+        default=None,
+        help="override the heightmap resolution selected by --quality, in metres",
+    )
+    parser.add_argument(
+        "--grid-spacing",
+        type=float,
+        default=None,
+        help="override the SCM grid spacing selected by --quality, in metres",
     )
     parser.add_argument(
         "--height-percentile",
