@@ -38,8 +38,6 @@ The launcher automatically:
 
 Scenarios are selected alphabetically within the chosen split. Pass `--scenario`
 to select a specific one; there is no required `alice_scenario02` directory.
-The optional `./scripts/run_goose.sh` wrapper activates the `chrono` environment.
-`scripts/run_goose_environment.py` is a compatibility entry point for the same launcher.
 
 The launcher reports the expected dataset location and stops if the required
 files are absent. Later runs reuse the generated scene.
@@ -119,21 +117,25 @@ between systems.
 
 - GOOSE-Ex point-cloud and semantic-label pairing;
 - scene selection by dataset, split, scenario, sequence and labelled frame index;
-- a fixed ground filter using the GOOSE 64-class ontology;
+- a default ground filter using the GOOSE 64-class ontology;
 - point-cloud rasterisation, hole filling and noise smoothing;
 - an 8-bit grayscale BMP heightmap for Chrono;
 - JSON metadata preserving dimensions, elevation and source provenance;
 - a configurable Chrono `SCMTerrain` viewer;
 - a headless initialization mode for automated checks.
 
-The fixed filter includes soil, gravel, asphalt, cobble, snow, leaves, moss,
+The default filter includes soil, gravel, asphalt, cobble, snow, leaves, moss,
 low grass, bikeways, pedestrian crossings, road markings, sidewalks, curbs and
 rail tracks. Low vegetation can provide ground-surface returns where bare-soil
 returns are sparse. Tall vegetation and structures are excluded.
 
-Simplified category maps and configurable terrain classes are deferred to a
-separate PR. This version produces a heightmap and scene metadata. Vegetation,
-rocks, structures and the excavator need separate meshes or proxy geometry.
+Issue #8 and PR #16 added the heightmap and Chrono SCM pipeline. This version
+produces a heightmap and scene metadata; fine and coarse semantic maps, the
+64-class roll-up and an expanded scene manifest are tracked in
+[Issue #22](https://github.com/Jason-CJS/CITS3200-Autonomous-Earthworks-Simulator/issues/22).
+The direct converter's `--ground-classes` option changes which classes count
+as ground; it does not export semantic maps. Vegetation, rocks, structures and
+the excavator require separate meshes or proxy geometry.
 
 ## Supported data and layouts
 
@@ -254,7 +256,7 @@ if the requested index is too large.
 
 Each selected frame has its own output folder. A compatible generated scene is
 reused on later runs. Use `--rebuild` to force regeneration. Scenes produced by
-earlier converter versions are rebuilt once with the fixed ground filter.
+earlier converter versions without quality metadata are rebuilt when selected.
 
 Useful direct-converter tuning options also include `--quality`, `--bounds`,
 `--resolution`, `--grid-spacing`, `--height-percentile`, and
@@ -295,19 +297,28 @@ python environments/terrain/goose_environment.py \
 
 ## Tests
 
-The converter tests exercise flat and nested GOOSE/GOOSE-Ex layouts, correct 3D
-label pairing, split selection, mapping validation, and synthetic terrain generation.
-They do not require real GOOSE files or PyChrono:
+The heightmap tests cover label bit fields, ground filtering, BMP dimensions,
+GOOSE-Ex filename selection and scene generation from a synthetic labelled
+point cloud. They do not need real GOOSE data or PyChrono:
 
 ```bash
 python -m unittest discover -s tests -p 'test_goose_heightmap.py' -v
 ```
 
-Run the launcher selection, listing, scene-cache and converter CLI checks too:
+The launcher tests cover quality CLI defaults and overrides, forwarding options
+to the converter, and whether a cached scene is reused or rebuilt when quality
+settings change or metadata is missing:
 
 ```bash
 python -m unittest discover -s tests -p 'test_run_goose_environment.py' -v
 ```
 
-Directory tests use synthetic fixtures. Actual dataset content and graphical
-rendering should also be checked on the machine with the prepared data and PyChrono.
+Quality resolver tests cover presets, overrides, invalid numeric values,
+manifest metadata and SCM grid spacing from current and legacy scenes:
+
+```bash
+python -m unittest discover -s tests -p 'test_goose_quality.py' -v
+```
+
+These unit tests use synthetic inputs. Check real dataset content and graphical
+rendering separately on a machine with prepared data and PyChrono.

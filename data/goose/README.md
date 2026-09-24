@@ -6,13 +6,13 @@ pipeline. This directory is gitignored (except this file). Run
 
 ## What's here (after running the extraction script)
 
-**3D point clouds only, validation split.** Not 2D images -- the
-terrain pipeline this feeds only consumes point clouds + labels. 2D
-GOOSE-Ex download is deferred to a separate labels/manifest export
-issue if/when that's picked up. Not the training/test splits -- same
-reasoning as before: we're extracting real terrain shape from a
-handful of real scenes, not training a segmentation model, and
-validation is fully labeled where test is not.
+**3D point clouds and labels, validation split.** The download script fetches
+paired `.bin` point clouds and `.label` files. The heightmap converter uses both,
+and [Issue #22](https://github.com/Jason-CJS/CITS3200-Autonomous-Earthworks-Simulator/issues/22)
+will use the same 3D labels for semantic maps and a scene manifest. 2D images
+are not needed for either pipeline. This script downloads the validation split;
+the converter can use separately prepared splits when matching 3D labels are
+available.
 
 ```
 data/goose/
