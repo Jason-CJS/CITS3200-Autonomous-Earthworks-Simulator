@@ -12,6 +12,7 @@ from deformation.output_inspector import (
     UNKNOWN,
     detect_output_kind,
     discover_output_files,
+    format_report,
     load_output_directory,
     load_output_file,
 )
@@ -122,6 +123,50 @@ class LoadOutputFileTests(unittest.TestCase):
             record = load_output_file(Path(tmp))
 
             self.assertFalse(record.ok)
+
+
+class FormatReportTests(unittest.TestCase):
+    def test_hole_fill_report_converts_metres_to_millimetres(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hole_fill_summary.json"
+            path.write_text(json.dumps(HOLE_FILL_SUMMARY_DATA))
+            record = load_output_file(path)
+
+            report = format_report(record)
+
+            self.assertIn("PASSED", report)
+            self.assertIn("2.09 mm", report)
+            self.assertIn("14 / 48", report)
+            self.assertNotIn("average_height_increase_m", report)
+
+    def test_deformation_report_converts_metres_to_millimetres(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "deformation_summary.json"
+            path.write_text(json.dumps(DEFORMATION_SUMMARY_DATA))
+            record = load_output_file(path)
+
+            report = format_report(record)
+
+            self.assertIn("1287", report)
+            self.assertIn("29.24 mm", report)
+
+    def test_goose_scene_report_includes_quality_and_size(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "scene.json"
+            path.write_text(json.dumps(GOOSE_SCENE_DATA))
+            record = load_output_file(path)
+
+            report = format_report(record)
+
+            self.assertIn("alice_scenario02", report)
+            self.assertIn("high", report)
+
+    def test_unreadable_file_report_shows_error_without_raising(self):
+        record = load_output_file(Path("/nonexistent/missing.json"))
+
+        report = format_report(record)
+
+        self.assertIn("Could not read", report)
 
 
 class DiscoverOutputFilesTests(unittest.TestCase):
