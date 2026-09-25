@@ -54,10 +54,22 @@ def detect_output_kind(data: dict[str, Any]) -> str:
     return UNKNOWN
 
 
+def _nested_dict(value: Any) -> dict[str, Any]:
+    """Return ``value`` if it is a dict, otherwise an empty dict.
+
+    JSON fields are sometimes present but set to ``null`` rather than
+    omitted. ``dict.get(key, {})`` only supplies its default when the key is
+    absent, so a null nested object would otherwise reach ``.get`` calls as
+    ``None`` and raise ``AttributeError``.
+    """
+
+    return value if isinstance(value, dict) else {}
+
+
 def _summarise(kind: str, data: dict[str, Any]) -> str:
     if kind == HOLE_FILL_SUMMARY:
         status = "PASSED" if data.get("passed") else "FAILED"
-        metrics = data.get("hole_metrics", {})
+        metrics = _nested_dict(data.get("hole_metrics"))
         increase_mm = metrics.get("average_height_increase_m", 0.0) * 1000
         return (
             f"{status} - {data.get('scenario', 'scenario')}, "
@@ -72,8 +84,8 @@ def _summarise(kind: str, data: dict[str, Any]) -> str:
         )
 
     if kind == GOOSE_SCENE:
-        source = data.get("source", {})
-        quality = data.get("quality", {})
+        source = _nested_dict(data.get("source"))
+        quality = _nested_dict(data.get("quality"))
         return (
             f"{source.get('scenario', 'unknown scenario')}, "
             f"{quality.get('preset', 'unknown')} quality, "
@@ -99,8 +111,8 @@ KIND_TITLES = {
 
 def _format_hole_fill_report(data: dict[str, Any]) -> list[str]:
     status = "PASSED" if data.get("passed") else "FAILED"
-    metrics = data.get("hole_metrics", {})
-    thresholds = data.get("acceptance_thresholds", {})
+    metrics = _nested_dict(data.get("hole_metrics"))
+    thresholds = _nested_dict(data.get("acceptance_thresholds"))
     return [
         f"Scenario: {data.get('scenario', 'unknown')}",
         f"Result:   {status}",
@@ -128,10 +140,10 @@ def _format_deformation_report(data: dict[str, Any]) -> list[str]:
 
 
 def _format_goose_scene_report(data: dict[str, Any]) -> list[str]:
-    source = data.get("source", {})
-    quality = data.get("quality", {})
-    resolved = quality.get("resolved", {})
-    grid = data.get("grid", {})
+    source = _nested_dict(data.get("source"))
+    quality = _nested_dict(data.get("quality"))
+    resolved = _nested_dict(quality.get("resolved"))
+    grid = _nested_dict(data.get("grid"))
     return [
         f"Scenario:      {source.get('scenario', 'unknown')} ({source.get('split', 'unknown')} split)",
         f"Quality:       {quality.get('preset', 'unknown')} preset",

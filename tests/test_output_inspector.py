@@ -161,6 +161,46 @@ class FormatReportTests(unittest.TestCase):
             self.assertIn("alice_scenario02", report)
             self.assertIn("high", report)
 
+    def test_hole_fill_report_handles_null_nested_fields_without_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "hole_fill_summary.json"
+            path.write_text(json.dumps({"hole_metrics": None, "acceptance_thresholds": {}}))
+            record = load_output_file(path)
+
+            report = format_report(record)
+
+            self.assertIn("Bulldozer hole-fill result", report)
+            self.assertIn("0.00 mm", report)
+
+    def test_goose_scene_report_handles_null_nested_fields_without_raising(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "scene.json"
+            path.write_text(
+                json.dumps(
+                    {"heightmap": "h.bmp", "source": None, "grid": None, "quality": None}
+                )
+            )
+            record = load_output_file(path)
+
+            report = format_report(record)
+
+            self.assertIn("GOOSE terrain scene", report)
+
+    def test_list_survives_a_file_with_null_nested_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "hole_fill_summary.json").write_text(
+                json.dumps({"hole_metrics": None, "acceptance_thresholds": {}})
+            )
+            (root / "deformation_summary.json").write_text(
+                json.dumps(DEFORMATION_SUMMARY_DATA)
+            )
+
+            records = load_output_directory(root)
+
+            self.assertEqual(len(records), 2)
+            self.assertTrue(all(record.ok for record in records))
+
     def test_unreadable_file_report_shows_error_without_raising(self):
         record = load_output_file(Path("/nonexistent/missing.json"))
 
