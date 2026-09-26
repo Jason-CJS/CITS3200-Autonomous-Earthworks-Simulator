@@ -62,10 +62,13 @@ class SceneGridTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             scene = SceneGrid.load(make_scene(Path(tmp)))
             scene.validate_route(0, 0, 0.6, 6)
+            scene.validate_start(0, 0)
             with self.assertRaisesRegex(ValueError, "leaves the generated terrain"):
                 scene.validate_route(0, 0, 0.6, 10)
             with self.assertRaisesRegex(ValueError, "leaves the generated terrain"):
                 scene.validate_route(0, 3, 0.6, 6)
+            with self.assertRaisesRegex(ValueError, "starting footprint"):
+                scene.validate_start(5, 0)
             with self.assertRaisesRegex(ValueError, "must be finite"):
                 scene.validate_route(0, 0, float("nan"), 6)
 
@@ -181,6 +184,142 @@ class SceneGridTests(unittest.TestCase):
             self.assertAlmostEqual(manifest["displacement_m"], 1.0)
             self.assertEqual(len(rows), 5)  # Initial state and four half-second samples.
             self.assertEqual(rows[-1]["x_m"], "-1.000000")
+
+    def test_manual_mode_records_keyboard_driving_until_window_closes(self) -> None:
+        """Manual mode reuses a keyboard controller and saves the final partial sample."""
+        class Vec:
+            def __init__(self, x, y, z):
+                self.x, self.y, self.z = x, y, z
+
+            def __add__(self, other):
+                return Vec(self.x + other.x, self.y + other.y, self.z + other.z)
+
+        class FakeSystem:
+            def __init__(self):
+                self.time = 0.0
+
+            def GetChTime(self):
+                return self.time
+
+        class FakeTerrain:
+            def Synchronize(self, time):
+                pass
+
+            def Advance(self, step):
+                pass
+
+        class FakeBulldozer:
+            def __init__(self, system, show_rigid_ground, initial_z_offset, initial_xy):
+                self.system = system
+                self.x, self.y = initial_xy
+                self.z = 1.0 + initial_z_offset
+                self.speed = 0.0
+
+            def set_blade_targets(self, lift, tilt):
+                pass
+
+            def set_drive_speeds(self, left, right):
+                self.speed = left
+
+            def advance(self, step):
+                self.x -= self.speed * step
+                self.system.time += step
+
+            def get_chassis_position(self):
+                return Vec(self.x, self.y, self.z)
+
+            def get_chassis_heading(self):
+                return 0.0
+
+        class FakeKeyboard:
+            stopped = False
+
+            def start(self):
+                pass
+
+            def stop(self):
+                FakeKeyboard.stopped = True
+
+        class FakeController:
+            def __init__(self, bulldozer, keyboard):
+                self.bulldozer = bulldozer
+                self.blade = [0.0, 0.0]
+
+            def update(self, frame_time):
+                self.bulldozer.set_drive_speeds(0.6, 0.6)
+
+        class FakeVisual:
+            calls = 0
+
+            def Run(self):
+                self.calls += 1
+                return self.calls <= 3
+
+            def SetCameraPosition(self, position):
+                pass
+
+            def SetCameraTarget(self, position):
+                pass
+
+            def BeginScene(self):
+                pass
+
+            def Render(self):
+                pass
+
+            def EndScene(self):
+                pass
+
+        chrono = ModuleType("pychrono")
+        chrono.ChVector3d = Vec
+        chrono.ChRealtimeStepTimer = lambda: SimpleNamespace(Spin=lambda time: None)
+        terrain_module = ModuleType("environments.terrain.goose_environment")
+        terrain_module.create_system = FakeSystem
+        terrain_module.create_terrain = lambda *args: FakeTerrain()
+        dozer_module = ModuleType("vehicles.bulldozer.articulation.bulldozer_model")
+        dozer_module.BulldozerModel = FakeBulldozer
+        demo_module = ModuleType("src.demo_common")
+        demo_module.KeyboardState = FakeKeyboard
+        demo_module.create_visual_system = lambda *args, **kwargs: FakeVisual()
+        controls_module = ModuleType("src.bulldozer_main")
+        controls_module.BulldozerController = FakeController
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            scene_path = make_scene(root)
+            config_path = root / "scm.json"
+            config_path.write_text(json.dumps({"step_size": 0.1}), encoding="utf-8")
+            args = Namespace(
+                scene=scene_path, config=config_path, output_dir=root / "out",
+                mode="manual", start_x=0.0, start_y=0.0, speed=0.6,
+                duration=None, sample_period=0.2, headless=False,
+            )
+            with patch.dict(sys.modules, {
+                "pychrono": chrono,
+                "environments.terrain.goose_environment": terrain_module,
+                "vehicles.bulldozer.articulation.bulldozer_model": dozer_module,
+                "src.demo_common": demo_module,
+                "src.bulldozer_main": controls_module,
+            }), patch.object(
+                terrain_package, "goose_environment", terrain_module, create=True
+            ), patch.object(
+                bulldozer_package, "bulldozer_model", dozer_module, create=True
+            ):
+                self.assertEqual(run_demo(args), 0)
+            manifest = json.loads((root / "out/run_manifest.json").read_text(encoding="utf-8"))
+            with (root / "out/trajectory.csv").open(newline="", encoding="utf-8") as stream:
+                rows = list(csv.DictReader(stream))
+            self.assertEqual(manifest["mode"], "manual_keyboard")
+            self.assertEqual(manifest["status"], "completed")
+            self.assertIsNone(manifest["requested_duration_s"])
+            self.assertEqual([row["time_s"] for row in rows],
+                             ["0.000000", "0.200000", "0.300000"])
+            self.assertEqual(rows[-1]["x_m"], "-0.180000")
+            self.assertTrue(FakeKeyboard.stopped)
+
+            args.headless = True
+            with self.assertRaisesRegex(ValueError, "manual mode needs a window"):
+                run_demo(args)
 
 
 if __name__ == "__main__":

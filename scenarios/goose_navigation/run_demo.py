@@ -24,10 +24,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scene", required=True, type=Path, help="generated GOOSE-Ex scene.json")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="SCM configuration JSON")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/goose_navigation"))
+    parser.add_argument("--mode", choices=("scripted", "manual"), default="scripted")
     parser.add_argument("--start-x", type=float, default=0.0, help="bulldozer start X in metres")
     parser.add_argument("--start-y", type=float, default=0.0, help="bulldozer start Y in metres")
-    parser.add_argument("--speed", type=float, default=0.6, help="positive track speed in m/s")
-    parser.add_argument("--duration", type=float, default=6.0, help="scripted traversal in seconds")
+    parser.add_argument("--speed", type=float, default=0.6, help="scripted track speed in m/s")
+    parser.add_argument("--duration", type=float, help="scripted duration (default 6 s); optional manual limit")
     parser.add_argument("--sample-period", type=float, default=0.1, help="trajectory sample interval in seconds")
     parser.add_argument("--headless", action="store_true", help="run without an Irrlicht window")
     return parser.parse_args()
@@ -43,13 +44,22 @@ def _sample(bulldozer, time_s: float) -> TrajectorySample:
 
 def run_demo(args: argparse.Namespace) -> int:
     scene = SceneGrid.load(args.scene)
-    scene.validate_route(args.start_x, args.start_y, args.speed, args.duration)
+    mode = getattr(args, "mode", "scripted")
+    if mode not in ("scripted", "manual"):
+        raise ValueError("mode must be scripted or manual")
+    if mode == "manual" and args.headless:
+        raise ValueError("manual mode needs a window; remove --headless")
+    duration = args.duration if args.duration is not None else (6.0 if mode == "scripted" else None)
+    if mode == "scripted":
+        scene.validate_route(args.start_x, args.start_y, args.speed, duration)
+    else:
+        scene.validate_start(args.start_x, args.start_y)
     config_path = args.config.expanduser().resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
         raise ValueError(f"{config_path}: expected an SCM configuration object")
     step_size = float(config["step_size"])
-    steps = exact_steps(args.duration, step_size, "duration")
+    steps = exact_steps(duration, step_size, "duration") if duration is not None else None
     sample_stride = exact_steps(args.sample_period, step_size, "sample period")
 
     # Chrono is loaded only after the scene and route have been validated.
@@ -71,7 +81,10 @@ def run_demo(args: argparse.Namespace) -> int:
         initial_xy=(args.start_x, args.start_y),
     )
     bulldozer.set_blade_targets(0.12, 0.0)
-    bulldozer.set_drive_speeds(args.speed, args.speed)
+    if mode == "scripted":
+        bulldozer.set_drive_speeds(args.speed, args.speed)
+    else:
+        bulldozer.set_drive_speeds(0.0, 0.0)
 
     visual = None
     if not args.headless:
@@ -79,37 +92,74 @@ def run_demo(args: argparse.Namespace) -> int:
 
         visual = create_visual_system(
             system,
-            "GOOSE-Ex - scripted bulldozer traversal",
+            f"GOOSE-Ex - {mode} bulldozer traversal",
             chrono.ChVector3d(args.start_x + 4, args.start_y - 10, start_height + 7),
             chrono.ChVector3d(args.start_x - 1, args.start_y, start_height),
+            controls=(
+                "W / S     Drive forward / reverse",
+                "A / D     Steer left / right",
+                "SPACE     Stop",
+                "R / F     Raise / lower blade",
+                "T / G     Tilt blade forward / back",
+                "X         Reset blade",
+            ) if mode == "manual" else (),
             balanced_lighting=True,
         )
 
     samples = [_sample(bulldozer, 0.0)]
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
-    for index in range(steps):
-        if visual is not None:
-            if not visual.Run():
-                break
-            if index % render_stride == 0:
+    keyboard = controller = timer = None
+    if mode == "manual":
+        from src.bulldozer_main import BulldozerController
+        from src.demo_common import KeyboardState
+
+        keyboard = KeyboardState()
+        controller = BulldozerController(bulldozer, keyboard)
+        controller.blade[0] = 0.12
+        timer = chrono.ChRealtimeStepTimer()
+        print("Controls: W/S drive, A/D steer, Space stop, R/F blade lift, T/G tilt, X reset.")
+        print("Close the window to save the trajectory and route overlay.")
+
+    try:
+        if keyboard is not None:
+            keyboard.start()
+        while steps is None or completed_steps < steps:
+            if visual is not None and completed_steps % render_stride == 0:
+                if not visual.Run():
+                    break
+                if controller is not None:
+                    controller.update(render_stride * step_size)
+                    position = bulldozer.get_chassis_position()
+                    visual.SetCameraPosition(position + chrono.ChVector3d(4, -10, 6))
+                    visual.SetCameraTarget(position + chrono.ChVector3d(-1, 0, -0.15))
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
 
-        terrain.Synchronize(system.GetChTime())
-        bulldozer.advance(step_size)
-        terrain.Advance(step_size)
-        completed_steps = index + 1
-        if completed_steps % sample_stride == 0 or completed_steps == steps:
-            samples.append(_sample(bulldozer, completed_steps * step_size))
+            terrain.Synchronize(system.GetChTime())
+            bulldozer.advance(step_size)
+            terrain.Advance(step_size)
+            completed_steps += 1
+            if completed_steps % sample_stride == 0 or completed_steps == steps:
+                samples.append(_sample(bulldozer, completed_steps * step_size))
+            if timer is not None and completed_steps % render_stride == 0:
+                timer.Spin(render_stride * step_size)
+    finally:
+        bulldozer.set_drive_speeds(0.0, 0.0)
+        if keyboard is not None:
+            keyboard.stop()
 
-    bulldozer.set_drive_speeds(0.0, 0.0)
+    if completed_steps and samples[-1].time_s < completed_steps * step_size - 1e-9:
+        samples.append(_sample(bulldozer, completed_steps * step_size))
     displacement = math.hypot(
         samples[-1].x_m - samples[0].x_m,
         samples[-1].y_m - samples[0].y_m,
     )
-    completed = completed_steps == steps and displacement >= 0.5 * args.speed * args.duration
+    completed = (
+        completed_steps == steps and displacement >= 0.5 * args.speed * duration
+        if mode == "scripted" else completed_steps > 0
+    )
 
     output_dir = args.output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -124,18 +174,18 @@ def run_demo(args: argparse.Namespace) -> int:
         "status": "completed" if completed else "incomplete",
         "source_scene": str(scene.path),
         "vehicle": "Project Chrono B10 bulldozer",
-        "mode": "scripted_straight_negative_x",
+        "mode": "scripted_straight_negative_x" if mode == "scripted" else "manual_keyboard",
         "starting_pose": {
             "x_m": samples[0].x_m,
             "y_m": samples[0].y_m,
             "z_m": samples[0].z_m,
             "yaw_rad": samples[0].yaw_rad,
         },
-        "requested_duration_s": args.duration,
+        "requested_duration_s": duration,
         "simulated_duration_s": completed_steps * step_size,
         "step_size_s": step_size,
         "sample_period_s": args.sample_period,
-        "track_speed_m_s": args.speed,
+        "track_speed_m_s": args.speed if mode == "scripted" else None,
         "displacement_m": displacement,
         "quality": scene.metadata.get("quality"),
         "semantic_labels": "pending_issue_22",

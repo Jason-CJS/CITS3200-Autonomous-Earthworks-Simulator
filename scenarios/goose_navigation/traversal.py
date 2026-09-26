@@ -96,6 +96,7 @@ class SceneGrid:
             raise ValueError("start coordinates, speed, and duration must be finite")
         if speed <= 0 or duration <= 0:
             raise ValueError("speed and duration must be greater than zero")
+        self.validate_start(start_x, start_y)
         end_x = start_x - speed * duration  # Positive B10 track speeds face negative X.
         if not (
             -self.size_x / 2 + VEHICLE_MARGIN_M <= min(start_x, end_x)
@@ -106,6 +107,16 @@ class SceneGrid:
                 "scripted route or bulldozer footprint leaves the generated terrain; "
                 "adjust --start-x, --start-y, --speed, or --duration"
             )
+
+    def validate_start(self, start_x: float, start_y: float) -> None:
+        """Keep the starting vehicle footprint within the terrain."""
+        if not all(map(math.isfinite, (start_x, start_y))):
+            raise ValueError("start coordinates must be finite")
+        if (
+            abs(start_x) > self.size_x / 2 - VEHICLE_MARGIN_M
+            or abs(start_y) > self.size_y / 2 - VEHICLE_MARGIN_M
+        ):
+            raise ValueError("bulldozer starting footprint leaves the generated terrain")
 
 
 def exact_steps(duration: float, step: float, name: str) -> int:
