@@ -29,6 +29,8 @@ class GooseLauncherTests(unittest.TestCase):
             pointcloud=pointcloud.resolve(),
             label=labels.resolve(),
             mapping=None,
+            changelog=None,
+            selection_index=0,
         )
 
     def write_scene(
@@ -42,20 +44,47 @@ class GooseLauncherTests(unittest.TestCase):
 
         heightmap = scene_dir / "heightmap.bmp"
         height_grid = scene_dir / "height_grid.npy"
+        semantic_fine = scene_dir / "semantic_fine.npy"
+        semantic_coarse = scene_dir / "semantic_coarse.npy"
+        semantic_legend = scene_dir / "semantic_legend.json"
         heightmap.touch()
         height_grid.touch()
+        semantic_fine.touch()
+        semantic_coarse.touch()
+        semantic_legend.touch()
 
         scene_path = scene_dir / "scene.json"
         scene = {
+            "format_version": launcher.SCENE_FORMAT_VERSION,
             "source": {
                 "dataset_root": str(root),
                 "pointcloud": str(frame.pointcloud.relative_to(root)),
                 "labels": str(frame.label.relative_to(root)),
                 "mapping": None,
+                "changelog": None,
+                "fingerprints": launcher.frame_source_fingerprints(frame),
             },
             "quality": quality.to_manifest(),
             "heightmap": heightmap.name,
             "height_grid": height_grid.name,
+            "outputs": {
+                "semantic_fine": {"path": semantic_fine.name},
+                "semantic_coarse": {"path": semantic_coarse.name},
+                "semantic_legend": {"path": semantic_legend.name},
+            },
+            "semantics": {
+                "format_version": launcher.SEMANTIC_FORMAT_VERSION,
+                "fine_taxonomy": {
+                    "name": launcher.FINE_TAXONOMY_NAME,
+                    "mapping_sha256": launcher.FINE_MAPPING_SHA256,
+                    "unobserved_id": 65535,
+                },
+                "coarse_taxonomy": {
+                    "name": launcher.COARSE_TAXONOMY_NAME,
+                    "unobserved_id": 255,
+                },
+                "aligned_to": height_grid.name,
+            },
         }
         scene_path.write_text(
             json.dumps(scene),
@@ -199,6 +228,99 @@ class GooseLauncherTests(unittest.TestCase):
                     quality,
                 )
             )
+
+    def test_missing_semantic_output_invalidates_cached_scene(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            frame = self.make_frame(root)
+            quality = launcher.resolve_quality("balanced")
+            scene_path = self.write_scene(root, frame, quality)
+            scene = json.loads(scene_path.read_text(encoding="utf-8"))
+            (
+                scene_path.parent
+                / scene["outputs"]["semantic_coarse"]["path"]
+            ).unlink()
+
+            self.assertFalse(
+                launcher.scene_matches_source(scene_path, frame, quality)
+            )
+
+    def test_changed_source_invalidates_cached_scene(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            frame = self.make_frame(root)
+            quality = launcher.resolve_quality("balanced")
+            scene_path = self.write_scene(root, frame, quality)
+            frame.label.write_bytes(b"new labels")
+
+            self.assertFalse(
+                launcher.scene_matches_source(scene_path, frame, quality)
+            )
+
+    def test_old_semantic_taxonomy_invalidates_cached_scene(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            frame = self.make_frame(root)
+            quality = launcher.resolve_quality("balanced")
+            scene_path = self.write_scene(root, frame, quality)
+            scene = json.loads(scene_path.read_text(encoding="utf-8"))
+            scene["semantics"]["coarse_taxonomy"]["name"] = "old-taxonomy"
+            scene_path.write_text(json.dumps(scene), encoding="utf-8")
+
+            self.assertFalse(
+                launcher.scene_matches_source(scene_path, frame, quality)
+            )
+
+    def test_old_scene_format_invalidates_cached_scene(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            frame = self.make_frame(root)
+            quality = launcher.resolve_quality("balanced")
+            scene_path = self.write_scene(root, frame, quality)
+            scene = json.loads(scene_path.read_text(encoding="utf-8"))
+            scene["format_version"] = 1
+            scene_path.write_text(json.dumps(scene), encoding="utf-8")
+
+            self.assertFalse(
+                launcher.scene_matches_source(scene_path, frame, quality)
+            )
+
+    def test_main_runs_converter_when_cache_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            frame = self.make_frame(root)
+            args = Namespace(
+                dataset=root,
+                split="auto",
+                scenario=None,
+                list_scenarios=False,
+                mapping=None,
+                sequence=None,
+                frame_index=0,
+                quality="balanced",
+                resolution=None,
+                grid_spacing=None,
+                rebuild=False,
+                headless=True,
+                duration=0.01,
+            )
+
+            with (
+                patch.object(launcher, "GENERATED_ROOT", root / "outputs"),
+                patch.object(launcher, "parse_args", return_value=args),
+                patch.object(launcher, "select_frame", return_value=frame),
+                patch.object(launcher, "ensure_pychrono"),
+                patch.object(launcher, "run") as run,
+            ):
+                result = launcher.main()
+
+            self.assertEqual(result, 0)
+            self.assertEqual(run.call_count, 2)
+            converter_command = run.call_args_list[0].args[0]
+            environment_command = run.call_args_list[1].args[0]
+            self.assertEqual(Path(converter_command[1]), launcher.CONVERTER)
+            self.assertEqual(Path(environment_command[1]), launcher.ENVIRONMENT)
+            self.assertIn("--headless", environment_command)
 
 
 if __name__ == "__main__":

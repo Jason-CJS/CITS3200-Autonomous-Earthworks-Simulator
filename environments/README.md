@@ -223,8 +223,18 @@ The command prints the generated `scene.json` path. Output is placed under:
 outputs/goose/<frame-name>/
 ├── heightmap.bmp
 ├── height_grid.npy
+├── semantic_fine.npy
+├── semantic_coarse.npy
+├── semantic_legend.json
 └── scene.json
 ```
+
+`semantic_fine.npy` retains the original 64 GOOSE class IDs and
+`semantic_coarse.npy` rolls them into the stable project categories. Both maps
+use the exact height-grid shape and orientation. Cells without a labelled
+LiDAR return use `65535` in the fine map and `255` in the coarse map. The legend
+records every class mapping, while `scene.json` records source hashes, frame
+identity, generation settings and output metadata.
 
 To choose a particular sequence or frame:
 
@@ -254,7 +264,8 @@ if the requested index is too large.
 
 Each selected frame has its own output folder. A compatible generated scene is
 reused on later runs. Use `--rebuild` to force regeneration. Scenes produced by
-earlier converter versions are rebuilt once with the fixed ground filter.
+earlier converter versions, scenes missing a semantic output, and scenes whose
+source files or taxonomy have changed are rebuilt.
 
 Useful direct-converter tuning options also include `--quality`, `--bounds`,
 `--resolution`, `--grid-spacing`, `--height-percentile`, and

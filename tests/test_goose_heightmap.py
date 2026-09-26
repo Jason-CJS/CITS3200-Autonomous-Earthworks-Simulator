@@ -101,6 +101,14 @@ class GooseHeightmapTests(unittest.TestCase):
             labels = root / "3d" / "val" / "labels" / "val" / "alice_scenario02"
             lidar.mkdir(parents=True)
             labels.mkdir(parents=True)
+            (root / "CHANGELOG").write_text("GOOSE-Ex validation release\n")
+            mapping_rows = ["label_key,class_name"] + [
+                f"{class_id},{class_name}"
+                for class_id, class_name in enumerate(converter.GOOSE_CLASS_NAMES)
+            ]
+            (root / "goose_label_mapping.csv").write_text(
+                "\n".join(mapping_rows) + "\n", encoding="utf-8"
+            )
             prefix = "alice_scenario02_sequence07_0000_123"
 
             axis = np.linspace(-2, 2, 21, dtype=np.float32)
@@ -128,9 +136,35 @@ class GooseHeightmapTests(unittest.TestCase):
                 output=temporary / "generated",
             )
             scene_path = converter.build_scene(args)
+            original_scene_text = scene_path.read_text(encoding="utf-8")
             scene = json.loads(scene_path.read_text(encoding="utf-8"))
 
+            self.assertEqual(scene["format_version"], 2)
             self.assertEqual(scene["source"]["platform"], "ALICE")
+            self.assertEqual(scene["source"]["sequence"], "07")
+            self.assertEqual(scene["source"]["frame_number"], 0)
+            self.assertEqual(scene["source"]["timestamp"], 123)
+            self.assertEqual(scene["source"]["selection_index"], 0)
+            self.assertEqual(scene["source"]["changelog"], "CHANGELOG")
+            self.assertEqual(
+                scene["source"]["mapping"], "goose_label_mapping.csv"
+            )
+            self.assertEqual(
+                scene["source"]["dataset_version"]["method"],
+                "source-metadata-sha256",
+            )
+            self.assertEqual(
+                len(scene["source"]["dataset_version"]["fingerprint"]), 64
+            )
+            self.assertEqual(
+                set(scene["source"]["fingerprints"]),
+                {
+                    "pointcloud_sha256",
+                    "labels_sha256",
+                    "mapping_sha256",
+                    "changelog_sha256",
+                },
+            )
             self.assertEqual(
                 scene["quality"],
                 {
@@ -145,11 +179,63 @@ class GooseHeightmapTests(unittest.TestCase):
                 },
             )
             self.assertEqual(scene["grid"]["requested_spacing"], 0.2)
+            self.assertEqual(scene["grid"]["row_zero"], "ymax")
+            self.assertEqual(scene["grid"]["column_zero"], "xmin")
+            self.assertEqual(
+                scene["bounds_xy"],
+                {"xmin": -2.0, "xmax": 2.0, "ymin": -2.0, "ymax": 2.0},
+            )
+            self.assertEqual(
+                set(scene["outputs"]),
+                {
+                    "heightmap",
+                    "height_grid",
+                    "semantic_fine",
+                    "semantic_coarse",
+                    "semantic_legend",
+                },
+            )
             self.assertEqual(scene["conversion"]["ground_class_ids"], [31])
             self.assertEqual(scene["conversion"]["ground_points_used"], len(points))
-            self.assertTrue((scene_path.parent / scene["heightmap"]).is_file())
             self.assertEqual(
-                np.load(scene_path.parent / scene["height_grid"]).shape, (21, 21)
+                scene["semantics"]["aggregation"],
+                {
+                    "method": "per-cell-majority",
+                    "tie_break": "lowest-fine-class-id",
+                    "smoothing": False,
+                    "interpolation": False,
+                },
+            )
+            self.assertTrue((scene_path.parent / scene["heightmap"]).is_file())
+            height_grid = np.load(scene_path.parent / scene["height_grid"])
+            fine = np.load(
+                scene_path.parent / scene["outputs"]["semantic_fine"]["path"]
+            )
+            coarse = np.load(
+                scene_path.parent / scene["outputs"]["semantic_coarse"]["path"]
+            )
+            legend = json.loads(
+                (
+                    scene_path.parent
+                    / scene["outputs"]["semantic_legend"]["path"]
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(height_grid.shape, (21, 21))
+            self.assertEqual(fine.shape, height_grid.shape)
+            self.assertEqual(coarse.shape, height_grid.shape)
+            self.assertEqual(fine.dtype, np.uint16)
+            self.assertEqual(coarse.dtype, np.uint8)
+            self.assertTrue(np.all(fine == 31))
+            self.assertTrue(np.all(coarse == 2))
+            self.assertEqual(len(legend["classes"]), 64)
+            self.assertEqual(
+                [entry["id"] for entry in legend["classes"]], list(range(64))
+            )
+            self.assertEqual(scene["semantics"]["aligned_to"], "height_grid.npy")
+
+            rebuilt_path = converter.build_scene(args)
+            self.assertEqual(
+                rebuilt_path.read_text(encoding="utf-8"), original_scene_text
             )
 
 

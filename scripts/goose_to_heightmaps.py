@@ -19,10 +19,20 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "environments" / "terrain"))
 from goose_dataset import (
     SelectedFrame,
     discover_scenarios,
+    frame_source_fingerprints,
     frame_name_for,
     no_clouds_message,
     scenario_listing,
     select_frame,
+)
+from goose_semantics import (
+    COARSE_TAXONOMY_NAME,
+    COARSE_UNOBSERVED,
+    FINE_MAPPING_SHA256,
+    FINE_TAXONOMY_NAME,
+    FINE_UNOBSERVED,
+    SCENE_FORMAT_VERSION,
+    SEMANTIC_FORMAT_VERSION,
 )
 
 from goose_quality import (
@@ -73,15 +83,41 @@ def scene_matches_source(
         scene = json.loads(scene_path.read_text(encoding="utf-8"))
         source = scene["source"]
         root = Path(source["dataset_root"])
-        stored_mapping = source.get("mapping")
-        mapping = (root / stored_mapping).resolve() if stored_mapping else None
+        outputs = scene["outputs"]
+        semantics = scene["semantics"]
+
+        def source_file(value: str | None) -> Path | None:
+            if not value:
+                return None
+            path = Path(value)
+            return (path if path.is_absolute() else root / path).resolve()
+
+        def output_file(name: str) -> Path:
+            return scene_path.parent / outputs[name]["path"]
+
         return (
-            (root / source["pointcloud"]).resolve() == frame.pointcloud
-            and (root / source["labels"]).resolve() == frame.label
-            and mapping == frame.mapping
+            scene["format_version"] == SCENE_FORMAT_VERSION
+            and source_file(source["pointcloud"]) == frame.pointcloud
+            and source_file(source["labels"]) == frame.label
+            and source_file(source.get("mapping")) == frame.mapping
+            and source_file(source.get("changelog")) == frame.changelog
+            and source["fingerprints"] == frame_source_fingerprints(frame)
             and scene.get("quality") == quality.to_manifest()
             and (scene_path.parent / scene["heightmap"]).is_file()
             and (scene_path.parent / scene["height_grid"]).is_file()
+            and output_file("semantic_fine").is_file()
+            and output_file("semantic_coarse").is_file()
+            and output_file("semantic_legend").is_file()
+            and semantics["format_version"] == SEMANTIC_FORMAT_VERSION
+            and semantics["fine_taxonomy"] == {
+                "name": FINE_TAXONOMY_NAME,
+                "mapping_sha256": FINE_MAPPING_SHA256,
+                "unobserved_id": int(FINE_UNOBSERVED),
+            }
+            and semantics["coarse_taxonomy"]["name"] == COARSE_TAXONOMY_NAME
+            and semantics["coarse_taxonomy"]["unobserved_id"]
+            == int(COARSE_UNOBSERVED)
+            and semantics["aligned_to"] == scene["height_grid"]
         )
     except (OSError, ValueError, KeyError, TypeError):
         return False
