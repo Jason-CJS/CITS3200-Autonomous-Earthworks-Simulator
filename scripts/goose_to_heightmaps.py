@@ -124,7 +124,7 @@ def ensure_pychrono() -> None:
     if importlib.util.find_spec("pychrono") is None:
         raise RuntimeError(
             "PyChrono is not available in the current Python environment. "
-            "Use scripts/run_goose.sh or activate the chrono Conda environment first."
+            "Activate the chrono Conda environment first."
         )
 
 

@@ -23,11 +23,9 @@ CITS3200-AES/
 ├── CMakeLists.txt             # Top-level build configuration
 │
 ├── environments/
-│   ├── goose/                 # GOOSE-aligned environment
-│   │   ├── terrain/
-│   │   ├── vegetation/
-│   │   └── scene_config/
-│   │
+│   ├── README.md              # GOOSE setup, generation and launch guide
+│   ├── terrain/               # GOOSE converter, dataset helper and viewer
+│   ├── scene_config/          # GOOSE SCM configuration
 │   └── construction_zone/     # AARP-reflective construction zone environment
 │       ├── terrain/
 │       ├── vegetation/
@@ -103,9 +101,19 @@ git push
 Please avoid installing packages ad-hoc without updating `environment.yml` - this keeps everyone's environment in sync.
 
 
-### Downloading GOOSE dataset into local machine
-Because the GOOSE dataset in use to form the terrains are large, it's not included in this repo itself. 
-Rather the below command to fetch the GOOSE validation dataset into your respective local machines:
+### Download the GOOSE-Ex validation split
+
+GOOSE-Ex 3D point clouds and labels are not stored in this repository. From
+the repository root, run:
+
 ```bash
-   scripts/download_goose_dataset.sh
+bash scripts/download_goose_dataset.sh
 ```
+
+The download helper from PR #24 prepares the labelled validation split under
+`data/goose/`. Generated heightmaps and scene metadata are written to
+`outputs/goose/<frame-name>/`. For scenario selection, quality presets and
+loading the terrain in Chrono, see [the GOOSE environment guide](environments/README.md).
+Issue #8 and PR #16 introduced the heightmap and SCM pipeline; semantic maps
+and the expanded scene manifest are tracked in
+[Issue #22](https://github.com/Jason-CJS/CITS3200-Autonomous-Earthworks-Simulator/issues/22).
