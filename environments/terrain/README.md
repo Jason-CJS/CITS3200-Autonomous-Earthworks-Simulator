@@ -1,5 +1,10 @@
 # GOOSE-Ex ALICE Chrono environment
 
+For dataset setup, scenario selection, and launcher instructions, see
+[the GOOSE environment guide](../README.md). This page is a quick reference for
+the direct converter and Chrono viewer. Run the commands below from the
+repository root with the `chrono` Conda environment active.
+
 This pipeline creates an initial Project Chrono environment from a labelled
 GOOSE-Ex LiDAR frame recorded by the ALICE excavator.
 
@@ -15,10 +20,11 @@ environment before running the converter:
 conda env update -f environment.yml --prune
 ```
 
-## 1. Generate the first ALICE heightmap
+## 1. Generate a heightmap
 
-The default command selects the first frame from `alice_scenario02` and crops a
-40 m by 40 m region around the LiDAR origin:
+The default command selects the first available labelled scenario, preferring
+`val`, then `train`, then `test`. It crops a 40 m by 40 m region around the
+LiDAR origin:
 
 ```bash
 python environments/terrain/build_heightmap.py
@@ -61,16 +67,17 @@ Pass the generated metadata path to the viewer:
 
 ```bash
 python environments/terrain/goose_environment.py \
-  --scene outputs/goose/<frame-name>/scene.json
+  --scene "outputs/goose/<frame-name>/scene.json"
 ```
 
 For a non-graphical initialization check:
 
 ```bash
 python environments/terrain/goose_environment.py \
-  --scene outputs/goose/<frame-name>/scene.json \
+  --scene "outputs/goose/<frame-name>/scene.json" \
   --headless
 ```
+
 ## Tests
 
 The converter tests use a synthetic labelled point cloud and do not download

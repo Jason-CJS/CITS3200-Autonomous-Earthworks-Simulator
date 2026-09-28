@@ -81,3 +81,38 @@ The HMMWV produced clearly visible and persistent wheel tracks through direct ty
 - The terrain begins as a flat patch.
 - False-colour rendering emphasises deformation and is not intended to represent final terrain materials.
 - This test covers tyre-induced deformation only. Excavator, bulldozer and sensor functionality are handled separately.
+
+## Inspecting previous results
+
+`scripts/inspect_outputs.py` reads the JSON files already written by this
+module's exporter, the bulldozer hole-filling scenario, and the GOOSE terrain
+pipeline, so results can be reviewed without re-running a simulation. It
+never imports PyChrono.
+
+List every known output file found under a directory, most recent runs
+included, as a summary table:
+
+```bash
+python -m scripts.inspect_outputs list outputs/
+```
+
+Print a labelled, unit-converted report for one specific file:
+
+```bash
+python -m scripts.inspect_outputs show outputs/bulldozer_hole_fill/hole_fill_summary.json
+```
+
+Add `--raw` to `show` to print the file's exact JSON contents instead of the
+formatted report, for example to check a precise unrounded value.
+
+Three output formats are recognised automatically from their contents:
+
+- `deformation_summary.json`, written by `write_deformation_export` in this
+  module.
+- `hole_fill_summary.json`, written by the bulldozer hole-filling scenario.
+- `scene.json`, written by the GOOSE terrain pipeline.
+
+Files with an unrecognised shape, invalid JSON, or that cannot be read (for
+example a file left partially written by an interrupted run) are reported as
+warnings rather than raising an error, so one bad file does not stop the rest
+of a directory from being listed.
