@@ -9,3 +9,4 @@ __pycache__/
 !/data/goose/README.md
 # Generated simulation exports
 /outputs/
+/semantic_outputs/
