@@ -11,6 +11,10 @@ The module can run in two modes:
 2. Real GOOSE mode:
    Loads semantic_coarse.npy, semantic_legend.json and height_grid.npy
    using a generated scene.json manifest.
+
+For real GOOSE scenes, vegetation placement candidates can be generated
+using deterministic spatial sampling. Objects are only placed in cells
+that the GOOSE semantic data identifies as vegetation.
 """
 
 import argparse
@@ -114,7 +118,11 @@ def get_output_path(scene_path, scene, output_name):
     scene_path = Path(scene_path)
 
     output_info = scene["outputs"][output_name]
-    output_path = scene_path.parent / output_info["path"]
+
+    output_path = (
+        scene_path.parent
+        / output_info["path"]
+    )
 
     return output_path
 
@@ -123,7 +131,10 @@ def load_goose_scene(scene_path):
     """Load all data required for GOOSE vegetation placement."""
 
     scene_path = Path(scene_path)
-    scene = load_scene(scene_path)
+
+    scene = load_scene(
+        scene_path
+    )
 
     semantic_path = get_output_path(
         scene_path,
@@ -165,11 +176,21 @@ def load_goose_scene(scene_path):
     bounds = scene["bounds_xy"]
     grid = scene["grid"]
 
-    xmin = float(bounds["xmin"])
-    ymax = float(bounds["ymax"])
+    xmin = float(
+        bounds["xmin"]
+    )
 
-    x_spacing = float(grid["x_spacing"])
-    y_spacing = float(grid["y_spacing"])
+    ymax = float(
+        bounds["ymax"]
+    )
+
+    x_spacing = float(
+        grid["x_spacing"]
+    )
+
+    y_spacing = float(
+        grid["y_spacing"]
+    )
 
     return {
         "scene": scene,
@@ -224,9 +245,20 @@ def cells_to_world_positions(
 
     for row, column in vegetation_cells:
 
-        x = xmin + column * x_spacing
-        y = ymax - row * y_spacing
-        z = height_grid[row, column]
+        x = (
+            xmin
+            + column * x_spacing
+        )
+
+        y = (
+            ymax
+            - row * y_spacing
+        )
+
+        z = height_grid[
+            row,
+            column,
+        ]
 
         positions.append(
             {
@@ -239,6 +271,172 @@ def cells_to_world_positions(
         )
 
     return positions
+
+
+def generate_vegetation_placements(
+    semantic_map,
+    height_grid,
+    vegetation_class,
+    x_spacing,
+    y_spacing,
+    xmin,
+    ymax,
+    placement_spacing=3.0,
+):
+    """Generate deterministic vegetation placement candidates.
+
+    The GOOSE semantic map determines where vegetation is allowed.
+
+    The semantic grid is divided into blocks approximately equal to
+    placement_spacing metres. Each block containing vegetation produces
+    one placement candidate.
+
+    The vegetation-labelled cell closest to the centre of the block is
+    selected. This makes placement deterministic and avoids creating one
+    simulated vegetation object for every semantic cell.
+    """
+
+    if placement_spacing <= 0:
+        raise ValueError(
+            "Placement spacing must be greater than zero."
+        )
+
+    rows, columns = semantic_map.shape
+
+    block_rows = max(
+        1,
+        int(
+            round(
+                placement_spacing
+                / y_spacing
+            )
+        ),
+    )
+
+    block_columns = max(
+        1,
+        int(
+            round(
+                placement_spacing
+                / x_spacing
+            )
+        ),
+    )
+
+    placements = []
+
+    for row_start in range(
+        0,
+        rows,
+        block_rows,
+    ):
+        row_end = min(
+            row_start + block_rows,
+            rows,
+        )
+
+        for column_start in range(
+            0,
+            columns,
+            block_columns,
+        ):
+            column_end = min(
+                column_start + block_columns,
+                columns,
+            )
+
+            block = semantic_map[
+                row_start:row_end,
+                column_start:column_end,
+            ]
+
+            (
+                local_rows,
+                local_columns,
+            ) = np.where(
+                block == vegetation_class
+            )
+
+            if len(local_rows) == 0:
+                continue
+
+            centre_row = (
+                row_start
+                + row_end
+                - 1
+            ) / 2.0
+
+            centre_column = (
+                column_start
+                + column_end
+                - 1
+            ) / 2.0
+
+            global_rows = (
+                local_rows
+                + row_start
+            )
+
+            global_columns = (
+                local_columns
+                + column_start
+            )
+
+            distances = (
+                (
+                    global_rows
+                    - centre_row
+                ) ** 2
+                + (
+                    global_columns
+                    - centre_column
+                ) ** 2
+            )
+
+            selected_index = int(
+                np.argmin(
+                    distances
+                )
+            )
+
+            row = int(
+                global_rows[
+                    selected_index
+                ]
+            )
+
+            column = int(
+                global_columns[
+                    selected_index
+                ]
+            )
+
+            x = (
+                xmin
+                + column * x_spacing
+            )
+
+            y = (
+                ymax
+                - row * y_spacing
+            )
+
+            z = height_grid[
+                row,
+                column,
+            ]
+
+            placements.append(
+                {
+                    "row": row,
+                    "column": column,
+                    "x": float(x),
+                    "y": float(y),
+                    "z": float(z),
+                }
+            )
+
+    return placements
 
 
 def find_vegetation_regions(
@@ -257,7 +455,9 @@ def find_vegetation_regions(
     Diagonal-only cells are therefore treated as separate regions.
     """
 
-    rows, columns = semantic_map.shape
+    rows, columns = (
+        semantic_map.shape
+    )
 
     visited = np.zeros(
         semantic_map.shape,
@@ -277,27 +477,42 @@ def find_vegetation_regions(
         for column in range(columns):
 
             if (
-                semantic_map[row, column]
+                semantic_map[
+                    row,
+                    column,
+                ]
                 != vegetation_class
             ):
                 continue
 
-            if visited[row, column]:
+            if visited[
+                row,
+                column,
+            ]:
                 continue
 
             region = []
 
             queue = deque(
-                [(row, column)]
+                [
+                    (
+                        row,
+                        column,
+                    )
+                ]
             )
 
-            visited[row, column] = True
+            visited[
+                row,
+                column,
+            ] = True
 
             while queue:
 
-                current_row, current_column = (
-                    queue.popleft()
-                )
+                (
+                    current_row,
+                    current_column,
+                ) = queue.popleft()
 
                 region.append(
                     (
@@ -331,14 +546,14 @@ def find_vegetation_regions(
 
                     if visited[
                         neighbour_row,
-                        neighbour_column
+                        neighbour_column,
                     ]:
                         continue
 
                     if (
                         semantic_map[
                             neighbour_row,
-                            neighbour_column
+                            neighbour_column,
                         ]
                         != vegetation_class
                     ):
@@ -346,7 +561,7 @@ def find_vegetation_regions(
 
                     visited[
                         neighbour_row,
-                        neighbour_column
+                        neighbour_column,
                     ] = True
 
                     queue.append(
@@ -356,7 +571,9 @@ def find_vegetation_regions(
                         )
                     )
 
-            regions.append(region)
+            regions.append(
+                region
+            )
 
     return regions
 
@@ -375,11 +592,13 @@ def get_region_centre(region):
     ]
 
     centre_row = (
-        sum(rows) / len(rows)
+        sum(rows)
+        / len(rows)
     )
 
     centre_column = (
-        sum(columns) / len(columns)
+        sum(columns)
+        / len(columns)
     )
 
     return (
@@ -393,10 +612,12 @@ def print_results(
     positions,
     regions,
     max_positions=None,
+    max_regions=None,
 ):
     """Print vegetation detection results."""
 
     print()
+
     print(
         f"Vegetation cells found: "
         f"{len(vegetation_cells)}"
@@ -410,9 +631,13 @@ def print_results(
     )
 
     print()
-    print("Vegetation world positions:")
+    print(
+        "Vegetation world positions:"
+    )
 
-    positions_to_print = positions
+    positions_to_print = (
+        positions
+    )
 
     if max_positions is not None:
         positions_to_print = positions[
@@ -433,24 +658,38 @@ def print_results(
 
     if (
         max_positions is not None
-        and len(positions) > max_positions
+        and len(positions)
+        > max_positions
     ):
         print(
             f"  ... "
             f"{len(positions) - max_positions} "
-            f"additional vegetation cells not shown"
+            f"additional vegetation cells "
+            f"not shown"
         )
 
     print()
-    print("Vegetation regions:")
+    print(
+        "Vegetation regions:"
+    )
+
+    regions_to_print = regions
+
+    if max_regions is not None:
+        regions_to_print = regions[
+            :max_regions
+        ]
 
     for index, region in enumerate(
-        regions,
+        regions_to_print,
         start=1,
     ):
 
-        centre_row, centre_column = (
-            get_region_centre(region)
+        (
+            centre_row,
+            centre_column,
+        ) = get_region_centre(
+            region
         )
 
         print(
@@ -459,6 +698,72 @@ def print_results(
             f"centre=("
             f"{centre_row:.2f}, "
             f"{centre_column:.2f})"
+        )
+
+    if (
+        max_regions is not None
+        and len(regions)
+        > max_regions
+    ):
+        print(
+            f"  ... "
+            f"{len(regions) - max_regions} "
+            f"additional regions not shown"
+        )
+
+
+def print_placements(
+    placements,
+    placement_spacing,
+    max_placements=20,
+):
+    """Print generated vegetation placement candidates."""
+
+    print()
+
+    print(
+        f"Placement spacing: "
+        f"{placement_spacing:.2f} m"
+    )
+
+    print(
+        f"Vegetation placements generated: "
+        f"{len(placements)}"
+    )
+
+    print()
+    print(
+        "Sample vegetation placements:"
+    )
+
+    placements_to_print = placements[
+        :max_placements
+    ]
+
+    for index, placement in enumerate(
+        placements_to_print,
+        start=1,
+    ):
+
+        print(
+            f"  Placement {index}: "
+            f"grid=("
+            f"{placement['row']}, "
+            f"{placement['column']}) "
+            f"-> world=("
+            f"{placement['x']:.2f}, "
+            f"{placement['y']:.2f}, "
+            f"{placement['z']:.2f})"
+        )
+
+    if (
+        len(placements)
+        > max_placements
+    ):
+        print(
+            f"  ... "
+            f"{len(placements) - max_placements} "
+            f"additional placements not shown"
         )
 
 
@@ -499,30 +804,42 @@ def run_demo():
     xmin = 0.0
     ymax = 6.0
 
-    vegetation_class = VEGETATION_CLASS
-
-    vegetation_cells = find_vegetation_cells(
-        semantic_map,
-        vegetation_class,
+    vegetation_class = (
+        VEGETATION_CLASS
     )
 
-    positions = cells_to_world_positions(
-        vegetation_cells,
-        height_grid,
-        x_spacing,
-        y_spacing,
-        xmin,
-        ymax,
+    vegetation_cells = (
+        find_vegetation_cells(
+            semantic_map,
+            vegetation_class,
+        )
     )
 
-    regions = find_vegetation_regions(
-        semantic_map,
-        vegetation_class,
+    positions = (
+        cells_to_world_positions(
+            vegetation_cells,
+            height_grid,
+            x_spacing,
+            y_spacing,
+            xmin,
+            ymax,
+        )
+    )
+
+    regions = (
+        find_vegetation_regions(
+            semantic_map,
+            vegetation_class,
+        )
     )
 
     print()
-    print("Semantic map:")
-    print(semantic_map)
+    print(
+        "Semantic map:"
+    )
+    print(
+        semantic_map
+    )
 
     print_results(
         vegetation_cells,
@@ -531,11 +848,15 @@ def run_demo():
     )
 
 
-def run_goose_scene(scene_path):
+def run_goose_scene(
+    scene_path,
+    placement_spacing=3.0,
+):
     """Process vegetation from a real generated GOOSE scene."""
 
     print(
-        f"Loading GOOSE scene: {scene_path}"
+        f"Loading GOOSE scene: "
+        f"{scene_path}"
     )
 
     data = load_goose_scene(
@@ -576,32 +897,59 @@ def run_goose_scene(scene_path):
         f"ymax={data['ymax']:.3f}"
     )
 
-    vegetation_cells = find_vegetation_cells(
-        semantic_map,
-        vegetation_class,
+    vegetation_cells = (
+        find_vegetation_cells(
+            semantic_map,
+            vegetation_class,
+        )
     )
 
-    positions = cells_to_world_positions(
-        vegetation_cells,
-        height_grid,
-        data["x_spacing"],
-        data["y_spacing"],
-        data["xmin"],
-        data["ymax"],
+    positions = (
+        cells_to_world_positions(
+            vegetation_cells,
+            height_grid,
+            data["x_spacing"],
+            data["y_spacing"],
+            data["xmin"],
+            data["ymax"],
+        )
     )
 
-    regions = find_vegetation_regions(
-        semantic_map,
-        vegetation_class,
+    regions = (
+        find_vegetation_regions(
+            semantic_map,
+            vegetation_class,
+        )
     )
 
-    # Real GOOSE scenes may contain thousands of vegetation cells.
-    # Only display the first 20 positions to keep terminal output usable.
+    placements = (
+        generate_vegetation_placements(
+            semantic_map,
+            height_grid,
+            vegetation_class,
+            data["x_spacing"],
+            data["y_spacing"],
+            data["xmin"],
+            data["ymax"],
+            placement_spacing,
+        )
+    )
+
+    # Real GOOSE scenes may contain thousands of cells
+    # and hundreds of connected regions, so terminal
+    # output is deliberately limited.
     print_results(
         vegetation_cells,
         positions,
         regions,
         max_positions=20,
+        max_regions=20,
+    )
+
+    print_placements(
+        placements,
+        placement_spacing,
+        max_placements=20,
     )
 
 
@@ -625,6 +973,17 @@ def parse_arguments():
         ),
     )
 
+    parser.add_argument(
+        "--spacing",
+        type=float,
+        default=3.0,
+        help=(
+            "Approximate spacing between vegetation "
+            "placement samples in metres "
+            "(default: 3.0)."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -637,7 +996,8 @@ def main():
         run_demo()
     else:
         run_goose_scene(
-            args.scene
+            args.scene,
+            args.spacing,
         )
 
 
