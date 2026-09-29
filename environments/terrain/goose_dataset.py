@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -63,6 +65,37 @@ class SelectedFrame:
     pointcloud: Path
     label: Path
     mapping: Path | None
+    changelog: Path | None
+    selection_index: int
+
+
+@dataclass(frozen=True)
+class FrameMetadata:
+    name: str
+    sequence: str | None
+    frame_number: int | None
+    timestamp: int | None
+
+
+def parse_frame_metadata(pointcloud: Path) -> FrameMetadata:
+    """Extract stable frame fields from the documented GOOSE file name."""
+    name = frame_name_for(pointcloud)
+    sequence_match = re.search(r"(?:^|_)sequence(\d+)(?=_|$)", name)
+    trailing_numbers = re.search(r"_(\d+)_(\d+)$", name)
+    return FrameMetadata(
+        name=name,
+        sequence=sequence_match.group(1) if sequence_match else None,
+        frame_number=int(trailing_numbers.group(1)) if trailing_numbers else None,
+        timestamp=int(trailing_numbers.group(2)) if trailing_numbers else None,
+    )
+
+
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def discover_scenarios(dataset_root: Path) -> list[Scenario]:
@@ -121,6 +154,60 @@ def mapping_for(data_root: Path, dataset_root: Path) -> Path | None:
             break
         current = current.parent
     return None
+
+
+def changelog_for(data_root: Path, dataset_root: Path) -> Path | None:
+    """Locate version information distributed with a GOOSE archive."""
+    candidates = (
+        "CHANGELOG",
+        "CHANGELOG.md",
+        "CHANGELOG.txt",
+        "changelog",
+        "changelog.md",
+        "changelog.txt",
+    )
+    current = data_root
+    while current.is_relative_to(dataset_root):
+        for name in candidates:
+            changelog = current / name
+            if changelog.is_file():
+                return changelog
+        if current == dataset_root:
+            break
+        current = current.parent
+    return None
+
+
+def frame_source_fingerprints(frame: SelectedFrame) -> dict[str, str | None]:
+    """Hash all source files that can affect generated scene outputs."""
+    return {
+        "pointcloud_sha256": file_sha256(frame.pointcloud),
+        "labels_sha256": file_sha256(frame.label),
+        "mapping_sha256": file_sha256(frame.mapping) if frame.mapping else None,
+        "changelog_sha256": file_sha256(frame.changelog) if frame.changelog else None,
+    }
+
+
+def dataset_version_fingerprint(
+    frame: SelectedFrame,
+    fingerprints: dict[str, str | None] | None = None,
+) -> str:
+    """Return a reproducible version ID even when an archive has no version file."""
+    if fingerprints is None:
+        fingerprints = frame_source_fingerprints(frame)
+    dataset_evidence = {
+        "changelog_sha256": fingerprints["changelog_sha256"],
+        "mapping_sha256": fingerprints["mapping_sha256"],
+    }
+    if not any(dataset_evidence.values()):
+        dataset_evidence.update({
+            "pointcloud_sha256": fingerprints["pointcloud_sha256"],
+            "labels_sha256": fingerprints["labels_sha256"],
+        })
+    encoded = json.dumps(
+        dataset_evidence, sort_keys=True, separators=(",", ":")
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def scenario_listing(scenarios: list[Scenario]) -> str:
@@ -198,4 +285,12 @@ def select_frame(
             f"labelled frames in {chosen.split}/{chosen.name}"
         )
     pointcloud, label = pairs[frame_index]
-    return SelectedFrame(root, chosen, pointcloud, label, mapping_for(chosen.data_root, root))
+    return SelectedFrame(
+        root,
+        chosen,
+        pointcloud,
+        label,
+        mapping_for(chosen.data_root, root),
+        changelog_for(chosen.data_root, root),
+        frame_index,
+    )

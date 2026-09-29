@@ -6,99 +6,74 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import math
 import struct
 import warnings
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
 import numpy as np
 
 if __package__:
-    from .goose_dataset import frame_name_for, select_frame
+    from .goose_dataset import (
+        dataset_version_fingerprint,
+        frame_source_fingerprints,
+        parse_frame_metadata,
+        select_frame,
+    )
     from .goose_quality import (
         DEFAULT_QUALITY_PRESET,
         QUALITY_PRESET_NAMES,
         resolve_quality,
     )
+    from .goose_semantics import (
+        COARSE_CATEGORIES,
+        COARSE_TAXONOMY_NAME,
+        COARSE_UNOBSERVED,
+        FINE_CLASS_NAMES,
+        FINE_MAPPING_SHA256,
+        FINE_TAXONOMY_NAME,
+        FINE_UNOBSERVED,
+        SCENE_FORMAT_VERSION,
+        SEMANTIC_FORMAT_VERSION,
+        class_distribution,
+        point_grid_indices,
+        rasterize_semantics,
+        semantic_legend,
+        validate_class_names,
+    )
 else:
-    from goose_dataset import frame_name_for, select_frame
+    from goose_dataset import (
+        dataset_version_fingerprint,
+        frame_source_fingerprints,
+        parse_frame_metadata,
+        select_frame,
+    )
     from goose_quality import (
         DEFAULT_QUALITY_PRESET,
         QUALITY_PRESET_NAMES,
         resolve_quality,
     )
+    from goose_semantics import (
+        COARSE_CATEGORIES,
+        COARSE_TAXONOMY_NAME,
+        COARSE_UNOBSERVED,
+        FINE_CLASS_NAMES,
+        FINE_MAPPING_SHA256,
+        FINE_TAXONOMY_NAME,
+        FINE_UNOBSERVED,
+        SCENE_FORMAT_VERSION,
+        SEMANTIC_FORMAT_VERSION,
+        class_distribution,
+        point_grid_indices,
+        rasterize_semantics,
+        semantic_legend,
+        validate_class_names,
+    )
 
 
-# Official 64-class GOOSE ontology. The CSV included with each dataset is still
-# read when available; this table is a defensive fallback and documents the IDs
-# used by the terrain filter.
-GOOSE_CLASS_NAMES = (
-    "undefined",
-    "traffic_cone",
-    "snow",
-    "cobble",
-    "obstacle",
-    "leaves",
-    "street_light",
-    "bikeway",
-    "ego_vehicle",
-    "pedestrian_crossing",
-    "road_block",
-    "road_marking",
-    "car",
-    "bicycle",
-    "person",
-    "bus",
-    "forest",
-    "bush",
-    "moss",
-    "traffic_light",
-    "motorcycle",
-    "sidewalk",
-    "curb",
-    "asphalt",
-    "gravel",
-    "boom_barrier",
-    "rail_track",
-    "tree_crown",
-    "tree_trunk",
-    "debris",
-    "crops",
-    "soil",
-    "rider",
-    "animal",
-    "truck",
-    "on_rails",
-    "caravan",
-    "trailer",
-    "building",
-    "wall",
-    "rock",
-    "fence",
-    "guard_rail",
-    "bridge",
-    "tunnel",
-    "pole",
-    "traffic_sign",
-    "misc_sign",
-    "barrier_tape",
-    "kick_scooter",
-    "low_grass",
-    "high_grass",
-    "scenery_vegetation",
-    "sky",
-    "water",
-    "wire",
-    "outlier",
-    "heavy_machinery",
-    "container",
-    "hedge",
-    "barrel",
-    "pipe",
-    "tree_root",
-    "military_vehicle",
-)
+# Backwards-compatible name used by existing callers and tests.
+GOOSE_CLASS_NAMES = FINE_CLASS_NAMES
 
 DEFAULT_GROUND_CLASSES = {
     "snow",
@@ -344,22 +319,11 @@ def rasterize_ground(
     height_percentile: float,
     smooth_passes: int,
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    xmin, xmax, ymin, ymax = bounds
-    if not (xmin < xmax and ymin < ymax):
-        raise ValueError("bounds must satisfy xmin < xmax and ymin < ymax")
-    if resolution <= 0:
-        raise ValueError("resolution must be positive")
-
-    xyz = points[:, :3]
-    finite = np.isfinite(xyz).all(axis=1)
-    in_bounds = (
-        (xyz[:, 0] >= xmin)
-        & (xyz[:, 0] <= xmax)
-        & (xyz[:, 1] >= ymin)
-        & (xyz[:, 1] <= ymax)
+    in_bounds, all_rows, all_columns, shape = point_grid_indices(
+        points, bounds, resolution
     )
     is_ground = np.isin(semantic, np.fromiter(ground_ids, dtype=np.uint32))
-    selected = finite & in_bounds & is_ground
+    selected = in_bounds & is_ground
     selected_count = int(selected.sum())
     if selected_count < 50:
         raise ValueError(
@@ -367,17 +331,12 @@ def rasterize_ground(
             "larger area, another frame, or additional ground classes"
         )
 
-    width = int(math.ceil((xmax - xmin) / resolution)) + 1
-    height = int(math.ceil((ymax - ymin) / resolution)) + 1
-    selected_xyz = xyz[selected]
-    columns = np.rint((selected_xyz[:, 0] - xmin) / (xmax - xmin) * (width - 1)).astype(int)
-    rows_from_bottom = np.rint(
-        (selected_xyz[:, 1] - ymin) / (ymax - ymin) * (height - 1)
-    ).astype(int)
-    rows = height - 1 - rows_from_bottom
-    columns = np.clip(columns, 0, width - 1)
-    rows = np.clip(rows, 0, height - 1)
+    height, width = shape
+    ground_within_bounds = is_ground[in_bounds]
+    rows = all_rows[ground_within_bounds]
+    columns = all_columns[ground_within_bounds]
     cells = rows * width + columns
+    selected_xyz = points[selected, :3]
 
     flat = _cell_percentiles(cells, selected_xyz[:, 2], width * height, height_percentile)
     sparse = flat.reshape((height, width))
@@ -450,7 +409,10 @@ def build_scene(args: argparse.Namespace) -> Path:
     )
     mapping_override = getattr(args, "mapping", None)
     mapping_path = mapping_override.expanduser().resolve() if mapping_override else frame.mapping
+    if mapping_path != frame.mapping:
+        frame = replace(frame, mapping=mapping_path)
     class_names = load_class_names(mapping_path)
+    validate_class_names(class_names)
     ground_names = set(args.ground_classes)
     ground_ids = sorted(
         class_id for class_id, name in class_names.items() if name in ground_names
@@ -471,23 +433,60 @@ def build_scene(args: argparse.Namespace) -> Path:
         args.height_percentile,
         args.smooth_passes,
     )
+    fine_map, coarse_map, semantic_point_count = rasterize_semantics(
+        pointcloud,
+        semantic,
+        bounds,
+        quality.terrain_resolution,
+    )
+    if fine_map.shape != height_grid.shape or coarse_map.shape != height_grid.shape:
+        raise RuntimeError("Semantic rasters are not aligned with the height grid")
     pixels, height_min, height_max = encode_heightmap(height_grid)
 
-    frame_name = frame_name_for(pointcloud_path)
-    output_dir = args.output.expanduser().resolve() / frame_name
+    frame_metadata = parse_frame_metadata(pointcloud_path)
+    output_dir = args.output.expanduser().resolve() / frame_metadata.name
     output_dir.mkdir(parents=True, exist_ok=True)
     heightmap_path = output_dir / "heightmap.bmp"
     grid_path = output_dir / "height_grid.npy"
+    fine_path = output_dir / "semantic_fine.npy"
+    coarse_path = output_dir / "semantic_coarse.npy"
+    legend_path = output_dir / "semantic_legend.json"
     scene_path = output_dir / "scene.json"
+    # scene.json is the cache-completion marker. Removing an older copy first
+    # prevents an interrupted rebuild from looking complete on the next run.
+    scene_path.unlink(missing_ok=True)
     write_grayscale_bmp(heightmap_path, pixels)
-    np.save(grid_path, np.clip(height_grid, height_min, height_max))
+    saved_height_grid = np.clip(height_grid, height_min, height_max)
+    np.save(grid_path, saved_height_grid)
+    np.save(fine_path, fine_map)
+    np.save(coarse_path, coarse_map)
+    legend_path.write_text(
+        json.dumps(semantic_legend(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     xmin, xmax, ymin, ymax = bounds
+    fingerprints = frame_source_fingerprints(frame)
+
+    def source_path(path: Path | None) -> str | None:
+        if path is None:
+            return None
+        return (
+            str(path.relative_to(dataset_root))
+            if path.is_relative_to(dataset_root)
+            else str(path)
+        )
+
+    semantic_cells = int(np.count_nonzero(fine_map != FINE_UNOBSERVED))
     metadata = {
-        "format_version": 1,
+        "format_version": SCENE_FORMAT_VERSION,
         "quality": quality.to_manifest(),
         "source": {
             "dataset": "GOOSE/GOOSE-Ex",
+            "dataset_version": {
+                "method": "source-metadata-sha256",
+                "fingerprint": dataset_version_fingerprint(frame, fingerprints),
+            },
             "platform": (
                 "ALICE" if frame.scenario.name.lower().startswith("alice_")
                 else "Spot" if frame.scenario.name.lower().startswith("spot_")
@@ -496,16 +495,48 @@ def build_scene(args: argparse.Namespace) -> Path:
             "dataset_root": str(dataset_root),
             "split": frame.scenario.split,
             "scenario": frame.scenario.name,
-            "pointcloud": str(pointcloud_path.relative_to(dataset_root)),
-            "labels": str(label_path.relative_to(dataset_root)),
-            "mapping": (
-                str(mapping_path.relative_to(dataset_root))
-                if mapping_path and mapping_path.is_relative_to(dataset_root)
-                else str(mapping_path) if mapping_path else None
-            ),
+            "sequence": frame_metadata.sequence,
+            "frame": frame_metadata.name,
+            "frame_number": frame_metadata.frame_number,
+            "timestamp": frame_metadata.timestamp,
+            "selection_index": frame.selection_index,
+            "pointcloud": source_path(pointcloud_path),
+            "labels": source_path(label_path),
+            "mapping": source_path(mapping_path),
+            "changelog": source_path(frame.changelog),
+            "fingerprints": fingerprints,
         },
         "heightmap": heightmap_path.name,
         "height_grid": grid_path.name,
+        "outputs": {
+            "heightmap": {
+                "path": heightmap_path.name,
+                "format": "8-bit grayscale BMP",
+                "shape": [int(pixels.shape[0]), int(pixels.shape[1])],
+            },
+            "height_grid": {
+                "path": grid_path.name,
+                "format": "NumPy NPY",
+                "dtype": str(saved_height_grid.dtype),
+                "shape": [int(value) for value in saved_height_grid.shape],
+            },
+            "semantic_fine": {
+                "path": fine_path.name,
+                "format": "NumPy NPY",
+                "dtype": str(fine_map.dtype),
+                "shape": [int(value) for value in fine_map.shape],
+            },
+            "semantic_coarse": {
+                "path": coarse_path.name,
+                "format": "NumPy NPY",
+                "dtype": str(coarse_map.dtype),
+                "shape": [int(value) for value in coarse_map.shape],
+            },
+            "semantic_legend": {
+                "path": legend_path.name,
+                "format": "JSON",
+            },
+        },
         "size_x": xmax - xmin,
         "size_y": ymax - ymin,
         "height_min": height_min,
@@ -525,6 +556,8 @@ def build_scene(args: argparse.Namespace) -> Path:
             "observed_fraction": float(observed.mean()),
             "row_zero": "ymax",
             "column_zero": "xmin",
+            "x_direction": "increasing",
+            "y_direction": "decreasing",
         },
         "conversion": {
             "height_percentile": args.height_percentile,
@@ -534,13 +567,45 @@ def build_scene(args: argparse.Namespace) -> Path:
             "points_total": int(len(pointcloud)),
             "ground_points_used": selected_count,
         },
+        "semantics": {
+            "format_version": SEMANTIC_FORMAT_VERSION,
+            "fine_taxonomy": {
+                "name": FINE_TAXONOMY_NAME,
+                "mapping_sha256": FINE_MAPPING_SHA256,
+                "unobserved_id": int(FINE_UNOBSERVED),
+            },
+            "coarse_taxonomy": {
+                "name": COARSE_TAXONOMY_NAME,
+                "unobserved_id": int(COARSE_UNOBSERVED),
+            },
+            "aggregation": {
+                "method": "per-cell-majority",
+                "tie_break": "lowest-fine-class-id",
+                "smoothing": False,
+                "interpolation": False,
+            },
+            "aligned_to": grid_path.name,
+            "points_used": semantic_point_count,
+            "observed_cells": semantic_cells,
+            "observed_fraction": semantic_cells / fine_map.size,
+            "fine_distribution": class_distribution(
+                fine_map, FINE_CLASS_NAMES, int(FINE_UNOBSERVED)
+            ),
+            "coarse_distribution": class_distribution(
+                coarse_map, COARSE_CATEGORIES, int(COARSE_UNOBSERVED)
+            ),
+        },
     }
-    scene_path.write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    scene_path.write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
     print(f"Point cloud: {pointcloud_path}")
     print(f"Labels: {label_path}")
     print(f"Ground points used: {selected_count:,} / {len(pointcloud):,}")
     print(f"Observed grid cells before filling: {observed.mean():.1%}")
+    print(f"Observed semantic grid cells: {semantic_cells / fine_map.size:.1%}")
     print(f"Height range: {height_min:.3f} m to {height_max:.3f} m")
     print(f"Chrono scene metadata: {scene_path}")
     return scene_path
