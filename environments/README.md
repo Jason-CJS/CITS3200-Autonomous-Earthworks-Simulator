@@ -113,14 +113,16 @@ peak memory. These results cover one scene on one software-rendered machine
 without a vehicle or active deformation workload, so performance will vary
 between systems.
 
-## What the first version provides
+## What the environment provides
 
 - GOOSE-Ex point-cloud and semantic-label pairing;
 - scene selection by dataset, split, scenario, sequence and labelled frame index;
 - a default ground filter using the GOOSE 64-class ontology;
 - point-cloud rasterisation, hole filling and noise smoothing;
 - an 8-bit grayscale BMP heightmap for Chrono;
-- JSON metadata preserving dimensions, elevation and source provenance;
+- aligned fine and coarse semantic label maps;
+- a machine-readable legend for all 64 original classes and their coarse categories;
+- JSON metadata preserving dimensions, elevation, source provenance, taxonomy and generation settings;
 - a configurable Chrono `SCMTerrain` viewer;
 - a headless initialization mode for automated checks.
 
@@ -129,13 +131,12 @@ low grass, bikeways, pedestrian crossings, road markings, sidewalks, curbs and
 rail tracks. Low vegetation can provide ground-surface returns where bare-soil
 returns are sparse. Tall vegetation and structures are excluded.
 
-Issue #8 and PR #16 added the heightmap and Chrono SCM pipeline. This version
-produces a heightmap and scene metadata; fine and coarse semantic maps, the
-64-class roll-up and an expanded scene manifest are tracked in
-[Issue #22](https://github.com/Jason-CJS/CITS3200-Autonomous-Earthworks-Simulator/issues/22).
-The direct converter's `--ground-classes` option changes which classes count
-as ground; it does not export semantic maps. Vegetation, rocks, structures and
-the excavator require separate meshes or proxy geometry.
+Issue #8 and PR #16 added the heightmap and Chrono SCM pipeline. Issue #22 adds
+the fine and coarse semantic maps, the 64-class roll-up and the expanded scene
+manifest. The direct converter's `--ground-classes` option changes which
+classes contribute to the height surface; it does not change the exported
+semantic taxonomy. Vegetation, rocks, structures and the excavator require
+separate meshes or proxy geometry.
 
 ## Supported data and layouts
 
@@ -225,8 +226,18 @@ The command prints the generated `scene.json` path. Output is placed under:
 outputs/goose/<frame-name>/
 ├── heightmap.bmp
 ├── height_grid.npy
+├── semantic_fine.npy
+├── semantic_coarse.npy
+├── semantic_legend.json
 └── scene.json
 ```
+
+`semantic_fine.npy` retains the original 64 GOOSE class IDs and
+`semantic_coarse.npy` rolls them into the stable project categories. Both maps
+use the exact height-grid shape and orientation. Cells without a labelled
+LiDAR return use `65535` in the fine map and `255` in the coarse map. The legend
+records every class mapping, while `scene.json` records source hashes, frame
+identity, generation settings and output metadata.
 
 To choose a particular sequence or frame:
 
@@ -256,7 +267,8 @@ if the requested index is too large.
 
 Each selected frame has its own output folder. A compatible generated scene is
 reused on later runs. Use `--rebuild` to force regeneration. Scenes produced by
-earlier converter versions without quality metadata are rebuilt when selected.
+earlier converter versions without quality metadata, scenes missing a semantic
+output, and scenes whose source files or taxonomy have changed are rebuilt.
 
 Useful direct-converter tuning options also include `--quality`, `--bounds`,
 `--resolution`, `--grid-spacing`, `--height-percentile`, and
@@ -318,6 +330,13 @@ manifest metadata and SCM grid spacing from current and legacy scenes:
 
 ```bash
 python -m unittest discover -s tests -p 'test_goose_quality.py' -v
+```
+
+Semantic tests cover the complete 64-class roll-up, unknown and incomplete
+taxonomies, deterministic majority voting, tie-breaking and map alignment:
+
+```bash
+python -m unittest discover -s tests -p 'test_goose_semantics.py' -v
 ```
 
 These unit tests use synthetic inputs. Check real dataset content and graphical

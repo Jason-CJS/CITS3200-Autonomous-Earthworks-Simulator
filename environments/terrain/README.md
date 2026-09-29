@@ -36,8 +36,17 @@ The command prints the generated `scene.json` path. Output is placed under:
 outputs/goose/<frame-name>/
 ├── heightmap.bmp
 ├── height_grid.npy
+├── semantic_fine.npy
+├── semantic_coarse.npy
+├── semantic_legend.json
 └── scene.json
 ```
+
+The fine semantic map contains the original GOOSE IDs. The coarse map contains
+the stable project categories listed in `semantic_legend.json`. Both arrays are
+aligned exactly with `height_grid.npy`; unobserved cells use `65535` (fine) and
+`255` (coarse). `scene.json` records the source files and hashes, selected frame,
+grid geometry, generation settings and every generated output.
 
 To choose a particular sequence or frame:
 
