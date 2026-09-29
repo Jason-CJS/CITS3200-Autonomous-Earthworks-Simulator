@@ -67,9 +67,9 @@ The output directory, ignored by Git, contains:
 
 | File | Contents |
 | --- | --- |
-| `trajectory.csv` | Time, measured chassis X/Y/Z position, yaw, and a reserved coarse semantic class column. |
-| `run_manifest.json` | Source scene, starting pose, quality settings, actual duration, track speed, displacement, status, and output filenames. |
-| `route_overlay.png` | Measured route, start and end positions over the initial GOOSE terrain height grid. |
+| `trajectory.csv` | Time, measured chassis X/Y/Z position and yaw, and the coarse semantic class beneath each chassis position. Unlabelled or out-of-bounds positions say `unobserved`. |
+| `run_manifest.json` | Source scene and its format version; coarse map and legend source paths; starting pose, quality, duration, speed, displacement, status, and output filenames. |
+| `route_overlay.png` | Measured route, start and end positions over the scene's coarse semantic map, with a colour key. |
 
 A successful scripted run requires the entire duration to complete and at
 least half of the commanded distance to be measured. An interrupted or
@@ -79,10 +79,13 @@ and is complete when you close its window after simulation has begun.
 
 ## Current limits
 
-The GOOSE semantic maps and legend from Issue #22 have not yet landed. The
-semantic column is therefore empty and the route image uses terrain heights,
-not semantic colours. Once that output format is settled, the route can be
-associated with coarse classes and overlaid on the label map.
+Version 2 GOOSE scenes use the exported `semantic_coarse.npy` and
+`semantic_legend.json` from the scene manifest. The nearest semantic grid cell
+at each sampled chassis XY supplies the class name. This describes the map at
+that point, not the soil material or a collision property. Version 1 scenes
+remain usable: their semantic column is blank, and their route image shows
+terrain height instead. For a version 2 scene, missing, misaligned, or invalid
+semantic assets stop the run with an error.
 
 The scripted mode uses the existing imposed-motion B10 drive and does not
 perform path planning or react to obstacles. Manual mode reuses the existing
@@ -99,8 +102,9 @@ python -m unittest discover -s tests -p 'test_goose_navigation.py' -v
 python -m unittest discover -s tests -p 'test_bulldozer.py' -v
 ```
 
-The first suite checks coordinate orientation, route bounds, deterministic
-sampling intervals, and exported CSV/PNG without PyChrono. The second needs
+The first suite checks coordinate orientation, route bounds, version 2 semantic
+alignment and output, version 1 compatibility, deterministic sampling intervals,
+and exported CSV/PNG without PyChrono. The second needs
 the `chrono` environment and checks the new positioned bulldozer start.
 Run the command above against a real generated scene to verify the full
 Chrono integration on the target machine.

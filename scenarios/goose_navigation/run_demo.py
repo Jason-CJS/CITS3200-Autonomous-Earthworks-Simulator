@@ -166,13 +166,14 @@ def run_demo(args: argparse.Namespace) -> int:
     trajectory_path = output_dir / "trajectory.csv"
     overlay_path = output_dir / "route_overlay.png"
     manifest_path = output_dir / "run_manifest.json"
-    write_trajectory(samples, trajectory_path)
+    write_trajectory(samples, trajectory_path, scene)
     write_route_overlay(scene, samples, overlay_path)
     manifest = {
         "format_version": 1,
         "scenario": "scripted_goose_bulldozer_traversal",
         "status": "completed" if completed else "incomplete",
         "source_scene": str(scene.path),
+        "source_scene_format_version": scene.metadata["format_version"],
         "vehicle": "Project Chrono B10 bulldozer",
         "mode": "scripted_straight_negative_x" if mode == "scripted" else "manual_keyboard",
         "starting_pose": {
@@ -188,7 +189,12 @@ def run_demo(args: argparse.Namespace) -> int:
         "track_speed_m_s": args.speed if mode == "scripted" else None,
         "displacement_m": displacement,
         "quality": scene.metadata.get("quality"),
-        "semantic_labels": "pending_issue_22",
+        "semantic_labels": ({
+            "coarse_map": str(scene.coarse_map_path),
+            "legend": str(scene.legend_path),
+            "taxonomy": scene.coarse_taxonomy,
+            "unobserved_id": scene.unobserved_id,
+        } if scene.coarse_labels is not None else None),
         "outputs": {
             "trajectory": trajectory_path.name,
             "route_overlay": overlay_path.name,

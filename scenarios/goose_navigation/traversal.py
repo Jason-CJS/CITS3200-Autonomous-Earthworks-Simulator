@@ -25,13 +25,19 @@ class SceneGrid:
     heights: np.ndarray
     size_x: float
     size_y: float
+    coarse_labels: np.ndarray | None = None
+    coarse_names: dict[int, str] | None = None
+    unobserved_id: int | None = None
+    coarse_map_path: Path | None = None
+    legend_path: Path | None = None
+    coarse_taxonomy: str | None = None
 
     @classmethod
     def load(cls, path: Path) -> "SceneGrid":
         path = path.expanduser().resolve()
         metadata = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(metadata, dict) or metadata.get("format_version") != 1:
-            raise ValueError(f"{path}: expected a version 1 GOOSE scene manifest")
+        if not isinstance(metadata, dict) or metadata.get("format_version") not in (1, 2):
+            raise ValueError(f"{path}: expected a version 1 or 2 GOOSE scene manifest")
 
         try:
             size_x, size_y = float(metadata["size_x"]), float(metadata["size_y"])
@@ -71,7 +77,64 @@ class SceneGrid:
         heights = np.load(height_grid, allow_pickle=False)
         if heights.shape != (height, width) or not np.isfinite(heights).all():
             raise ValueError(f"{path}: height_grid.npy has the wrong shape or non-finite heights")
-        return cls(path, metadata, heights, size_x, size_y)
+
+        if metadata["format_version"] == 1:
+            return cls(path, metadata, heights, size_x, size_y)
+
+        try:
+            coarse_output = metadata["outputs"]["semantic_coarse"]
+            legend_output = metadata["outputs"]["semantic_legend"]
+            coarse_path = path.parent / coarse_output["path"]
+            legend_path = path.parent / legend_output["path"]
+            if not coarse_path.is_file() or not legend_path.is_file():
+                raise FileNotFoundError("semantic_coarse.npy or semantic_legend.json is missing")
+            coarse_labels = np.load(coarse_path, allow_pickle=False)
+            legend = json.loads(legend_path.read_text(encoding="utf-8"))
+            taxonomy = legend["coarse_taxonomy"]
+            unobserved = int(taxonomy["unobserved_id"])
+            categories = taxonomy["categories"]
+            names = {int(category["id"]): category["name"] for category in categories}
+            if (
+                coarse_labels.shape != heights.shape
+                or coarse_labels.dtype != np.uint8
+                or coarse_output["shape"] != list(heights.shape)
+                or coarse_output["dtype"] != "uint8"
+            ):
+                raise ValueError("semantic_coarse.npy has the wrong shape or dtype")
+            if (
+                not names or len(names) != len(categories)
+                or any(not isinstance(name, str) or not name for name in names.values())
+                or unobserved in names
+                or not set(map(int, np.unique(coarse_labels))) <= (set(names) | {unobserved})
+                or legend["grid_alignment"]["aligned_to"] != height_grid.name
+                or legend["grid_alignment"]["row_zero"] != grid["row_zero"]
+                or legend["grid_alignment"]["column_zero"] != grid["column_zero"]
+                or metadata["semantics"]["coarse_taxonomy"]["unobserved_id"] != unobserved
+            ):
+                raise ValueError("semantic map and legend disagree with the scene grid")
+            taxonomy_name = taxonomy["name"]
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            raise ValueError(f"{path}: invalid version 2 semantic outputs: {exc}") from exc
+        return cls(path, metadata, heights, size_x, size_y, coarse_labels,
+                   names, unobserved, coarse_path.resolve(), legend_path.resolve(),
+                   taxonomy_name)
+
+    def coarse_class_at(self, x: float, y: float) -> str:
+        """Class beneath the measured chassis XY; unlabelled cells stay explicit."""
+        if self.coarse_labels is None:
+            return ""  # Version 1 scenes have no semantic map.
+        if not all(map(math.isfinite, (x, y))):
+            return "unobserved"
+        if abs(x) > self.size_x / 2 or abs(y) > self.size_y / 2:
+            return "unobserved"
+        col = math.floor((x + self.size_x / 2) * (self.heights.shape[1] - 1)
+                         / self.size_x + 0.5)
+        row = math.floor((self.size_y / 2 - y) * (self.heights.shape[0] - 1)
+                         / self.size_y + 0.5)
+        category = int(self.coarse_labels[row, col])
+        if category == self.unobserved_id:
+            return "unobserved"
+        return self.coarse_names[category]
 
     def height_at(self, x: float, y: float) -> float:
         """Bilinear terrain height in Chrono's centred XY coordinates."""
@@ -138,7 +201,7 @@ class TrajectorySample:
     yaw_rad: float
 
 
-def write_trajectory(samples: list[TrajectorySample], path: Path) -> None:
+def write_trajectory(samples: list[TrajectorySample], path: Path, scene: SceneGrid) -> None:
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
         writer.writerow(("time_s", "x_m", "y_m", "z_m", "yaw_rad", "coarse_semantic_class"))
@@ -149,24 +212,41 @@ def write_trajectory(samples: list[TrajectorySample], path: Path) -> None:
                 f"{sample.y_m:.6f}",
                 f"{sample.z_m:.6f}",
                 f"{sample.yaw_rad:.6f}",
-                "",  # Populated when Issue #22 defines the coarse label-map format.
+                scene.coarse_class_at(sample.x_m, sample.y_m),
             ))
 
 
 def write_route_overlay(scene: SceneGrid, samples: list[TrajectorySample], path: Path) -> None:
-    """Show the measured route over the existing terrain height grid."""
+    """Show the measured route over semantic classes, or heights for v1 scenes."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     figure, axes = plt.subplots(figsize=(8, 7))
-    image = axes.imshow(
-        scene.heights,
-        extent=(-scene.size_x / 2, scene.size_x / 2, -scene.size_y / 2, scene.size_y / 2),
-        origin="upper",
-        cmap="terrain",
-    )
+    half_cell_x = scene.size_x / (scene.heights.shape[1] - 1) / 2
+    half_cell_y = scene.size_y / (scene.heights.shape[0] - 1) / 2
+    extent = (-scene.size_x / 2 - half_cell_x, scene.size_x / 2 + half_cell_x,
+              -scene.size_y / 2 - half_cell_y, scene.size_y / 2 + half_cell_y)
+    if scene.coarse_labels is None:
+        image = axes.imshow(scene.heights, extent=extent, origin="upper", cmap="terrain")
+        figure.colorbar(image, ax=axes, label="Initial terrain height (m)")
+    else:
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+
+        present = sorted(set(map(int, np.unique(scene.coarse_labels))) - {scene.unobserved_id})
+        names = [scene.coarse_names[category] for category in present] + ["unobserved"]
+        unobserved_index = len(present)
+        indices = np.full(scene.coarse_labels.shape, unobserved_index, dtype=np.uint8)
+        for index, category in enumerate(present):
+            indices[scene.coarse_labels == category] = index
+        colors = [plt.get_cmap("tab20")(index) for index in range(len(present))]
+        colors.append("lightgray")
+        cmap = ListedColormap(colors)
+        norm = BoundaryNorm(np.arange(len(names) + 1) - 0.5, cmap.N)
+        image = axes.imshow(indices, extent=extent, origin="upper", cmap=cmap, norm=norm)
+        figure.colorbar(image, ax=axes, ticks=range(len(names)), label="Coarse semantic class")
+        image.colorbar.ax.set_yticklabels(names)
     axes.plot([sample.x_m for sample in samples], [sample.y_m for sample in samples],
               color="crimson", linewidth=2, label="Bulldozer route")
     axes.scatter(samples[0].x_m, samples[0].y_m, color="lime", edgecolors="black",
@@ -174,9 +254,10 @@ def write_route_overlay(scene: SceneGrid, samples: list[TrajectorySample], path:
     axes.scatter(samples[-1].x_m, samples[-1].y_m, color="dodgerblue", edgecolors="black",
                  s=75, zorder=3, label="End")
     axes.set(xlabel="Chrono X (m)", ylabel="Chrono Y (m)", title="GOOSE-Ex bulldozer traversal")
+    axes.set_xlim(-scene.size_x / 2, scene.size_x / 2)
+    axes.set_ylim(-scene.size_y / 2, scene.size_y / 2)
     axes.set_aspect("equal")
     axes.legend(loc="best")
-    figure.colorbar(image, ax=axes, label="Initial terrain height (m)")
     figure.tight_layout()
     figure.savefig(path, dpi=150)
     plt.close(figure)

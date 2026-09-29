@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from environments import terrain as terrain_package
+from environments.terrain.goose_semantics import semantic_legend
 from vehicles.bulldozer import articulation as bulldozer_package
 from scenarios.goose_navigation.traversal import (
     SceneGrid,
@@ -26,14 +27,13 @@ from scenarios.goose_navigation.traversal import (
 from scenarios.goose_navigation.run_demo import run_demo
 
 
-def make_scene(root: Path) -> Path:
+def make_scene(root: Path, version: int = 2) -> Path:
     heights = np.array([[10 * row + col for col in range(7)] for row in range(5)])
     np.save(root / "height_grid.npy", heights)
     (root / "heightmap.bmp").write_bytes(b"fixture")
     path = root / "scene.json"
-    path.write_text(
-        json.dumps({
-            "format_version": 1,
+    metadata = {
+            "format_version": version,
             "heightmap": "heightmap.bmp",
             "height_grid": "height_grid.npy",
             "size_x": 12.0,
@@ -43,9 +43,21 @@ def make_scene(root: Path) -> Path:
                 "width": 7, "height": 5, "x_spacing": 2, "y_spacing": 2,
                 "row_zero": "ymax", "column_zero": "xmin",
             },
-        }),
-        encoding="utf-8",
-    )
+        }
+    if version == 2:
+        coarse = np.full(heights.shape, 2, dtype=np.uint8)
+        coarse[2, 3] = 1  # Vegetation at the centre of the terrain.
+        coarse[2, 4] = 255  # No semantic observation at (2, 0).
+        np.save(root / "semantic_coarse.npy", coarse)
+        (root / "semantic_legend.json").write_text(json.dumps(semantic_legend()), encoding="utf-8")
+        metadata["outputs"] = {
+            "semantic_coarse": {
+                "path": "semantic_coarse.npy", "dtype": "uint8", "shape": list(heights.shape),
+            },
+            "semantic_legend": {"path": "semantic_legend.json"},
+        }
+        metadata["semantics"] = {"coarse_taxonomy": {"unobserved_id": 255}}
+    path.write_text(json.dumps(metadata), encoding="utf-8")
     return path
 
 
@@ -57,6 +69,28 @@ class SceneGridTests(unittest.TestCase):
             self.assertEqual(scene.height_at(0, 0), 23)
             self.assertEqual(scene.height_at(6, -4), 46)
             self.assertAlmostEqual(scene.height_at(1, 1), 18.5)
+
+    def test_coarse_classes_follow_grid_orientation(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = SceneGrid.load(make_scene(Path(tmp)))
+            self.assertEqual(scene.coarse_class_at(0, 0), "vegetation")
+            self.assertEqual(scene.coarse_class_at(-2, 0), "terrain")
+            self.assertEqual(scene.coarse_class_at(2, 0), "unobserved")
+            self.assertEqual(scene.coarse_class_at(0, 4), "terrain")
+            self.assertEqual(scene.coarse_class_at(7, 0), "unobserved")
+
+    def test_version1_scene_still_works_without_semantic_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = SceneGrid.load(make_scene(Path(tmp), version=1))
+            self.assertIsNone(scene.coarse_labels)
+            self.assertEqual(scene.coarse_class_at(0, 0), "")
+            samples = [TrajectorySample(0, 0, 0, 0, 0)]
+            csv_path, png_path = Path(tmp) / "trajectory.csv", Path(tmp) / "route.png"
+            write_trajectory(samples, csv_path, scene)
+            write_route_overlay(scene, samples, png_path)
+            with csv_path.open(newline="", encoding="utf-8") as stream:
+                self.assertEqual(list(csv.DictReader(stream))[0]["coarse_semantic_class"], "")
+            self.assertTrue(png_path.is_file())
 
     def test_route_checks_the_blade_footprint_and_destination(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,13 +122,29 @@ class SceneGridTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "wrong shape"):
                 SceneGrid.load(path)
 
+    def test_rejects_missing_or_misaligned_semantic_data(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = make_scene(root)
+            (root / "semantic_coarse.npy").unlink()
+            with self.assertRaisesRegex(FileNotFoundError, "semantic_coarse.npy"):
+                SceneGrid.load(path)
+
+            np.save(root / "semantic_coarse.npy", np.zeros((3, 3), dtype=np.uint8))
+            with self.assertRaisesRegex(ValueError, "wrong shape or dtype"):
+                SceneGrid.load(path)
+
+            np.save(root / "semantic_coarse.npy", np.full((5, 7), 42, dtype=np.uint8))
+            with self.assertRaisesRegex(ValueError, "map and legend disagree"):
+                SceneGrid.load(path)
+
     def test_fixed_step_sampling_requires_exact_multiples(self) -> None:
         self.assertEqual(exact_steps(6.0, 0.002, "duration"), 3000)
         self.assertEqual(exact_steps(0.1, 0.002, "sample period"), 50)
         with self.assertRaisesRegex(ValueError, "multiple"):
             exact_steps(0.101, 0.002, "sample period")
 
-    def test_exports_trajectory_and_route_on_heightmap(self) -> None:
+    def test_exports_trajectory_and_route_on_semantic_map(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             scene = SceneGrid.load(make_scene(root))
@@ -103,13 +153,13 @@ class SceneGridTests(unittest.TestCase):
                 TrajectorySample(1.0, -0.6, 0.0, 23.0, 0.0),
             ]
             csv_path, png_path = root / "trajectory.csv", root / "route_overlay.png"
-            write_trajectory(samples, csv_path)
+            write_trajectory(samples, csv_path, scene)
             write_route_overlay(scene, samples, png_path)
             with csv_path.open(newline="", encoding="utf-8") as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual([row["time_s"] for row in rows], ["0.000000", "1.000000"])
             self.assertEqual(rows[1]["x_m"], "-0.600000")
-            self.assertEqual(rows[1]["coarse_semantic_class"], "")
+            self.assertEqual(rows[1]["coarse_semantic_class"], "vegetation")
             self.assertEqual(png_path.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
 
     def test_scripted_run_records_chassis_motion_and_status(self) -> None:
@@ -181,9 +231,14 @@ class SceneGridTests(unittest.TestCase):
             with (root / "out/trajectory.csv").open(newline="", encoding="utf-8") as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual(manifest["status"], "completed")
+            self.assertEqual(manifest["source_scene_format_version"], 2)
+            self.assertEqual(manifest["semantic_labels"]["coarse_map"],
+                             str(root / "semantic_coarse.npy"))
+            self.assertEqual(manifest["semantic_labels"]["taxonomy"], "project-coarse-v1")
             self.assertAlmostEqual(manifest["displacement_m"], 1.0)
             self.assertEqual(len(rows), 5)  # Initial state and four half-second samples.
             self.assertEqual(rows[-1]["x_m"], "-1.000000")
+            self.assertTrue(all(row["coarse_semantic_class"] == "vegetation" for row in rows))
 
     def test_manual_mode_records_keyboard_driving_until_window_closes(self) -> None:
         """Manual mode reuses a keyboard controller and saves the final partial sample."""
@@ -315,6 +370,7 @@ class SceneGridTests(unittest.TestCase):
             self.assertEqual([row["time_s"] for row in rows],
                              ["0.000000", "0.200000", "0.300000"])
             self.assertEqual(rows[-1]["x_m"], "-0.180000")
+            self.assertEqual(rows[-1]["coarse_semantic_class"], "vegetation")
             self.assertTrue(FakeKeyboard.stopped)
 
             args.headless = True
