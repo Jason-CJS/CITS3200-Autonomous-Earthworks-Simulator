@@ -5,35 +5,6 @@ pipeline or Chrono. The command writes fine and coarse colour-coded PNGs with
 class names, IDs and cell counts alongside each image. It can also blend labels
 over the saved heightmap. Open the PNGs in your normal image viewer.
 
-## Installation
-
-Copy `scenarios/goose_label_viewer/` into the repository's `scenarios/` directory.
-For tests, also copy `tests/test_goose_label_viewer.py` and both
-`tests/fixtures/goose_label_viewer*/` directories. Run commands from the repository
-root. When updating an earlier viewer installation, replace both `viewer.py` and
-`view_scene.py` together.
-
-Add any missing packages to your existing `environment.yml` dependencies:
-
-```yaml
-  - numpy
-  - matplotlib
-  - pillow
-```
-
-Then update and activate your environment:
-
-```bash
-conda env update -n chrono -f environment.yml
-conda activate chrono
-```
-
-Add `/outputs/goose_label_viewer/` to `.gitignore` unless `/outputs/` already
-covers it. Keep the small saved fixtures under `tests/fixtures/` in Git.
-
-The renderer uses Matplotlib's Agg backend. No display server, GPU, GUI toolkit
-or PyChrono import is needed to save previews.
-
 ## Run the viewer
 
 For the scene used to validate this implementation:
