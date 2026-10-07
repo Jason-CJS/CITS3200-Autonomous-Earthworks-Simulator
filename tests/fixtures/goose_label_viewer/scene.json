@@ -1,0 +1,11 @@
+{
+  "format_version": 1,
+  "source": {"dataset": "synthetic viewer fixture; not a real GOOSE frame"},
+  "height_grid": "height_grid.npy",
+  "grid": {"width": 8, "height": 6, "row_zero": "ymax", "column_zero": "xmin"},
+  "label_maps": {
+    "fine": {"path": "labels_fine.npy", "nodata": 65535},
+    "coarse": {"path": "labels_coarse.npy", "nodata": 65535},
+    "legend": "label_legend.json"
+  }
+}
