@@ -1,3 +1,4 @@
+
 """Create Chrono vegetation objects from exported GOOSE placements.
 
 This module supports:
@@ -8,12 +9,12 @@ This module supports:
 Tree positions come from the GOOSE semantic data.
 
 Each detailed tree uses:
-- a simple cylindrical Chrono body for the trunk/physics representation;
+- a fixed cylindrical Chrono body with collision enabled;
 - a detailed Beech or Oak OBJ mesh for visualization.
 
 The visual tree mesh is attached to the trunk body. This keeps the
 physics representation simple while allowing a more detailed tree
-appearance.
+appearance. Trees are rigid obstacles and do not bend or break.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ DEFAULT_MARKER_DENSITY = 700.0
 
 DEFAULT_TREE_TRUNK_RADIUS = 0.20
 DEFAULT_TREE_TRUNK_DENSITY = 700.0
+DEFAULT_TREE_FRICTION = 0.8
 
 
 # Approximate visual model heights after conversion:
@@ -76,7 +78,7 @@ DEFAULT_TREE_TRUNK_DENSITY = 700.0
 # Oak:
 #     8.83 m
 #
-# The physics cylinder represents only the main trunk rather than
+# The collision cylinder represents only the main trunk rather than
 # the complete visual model.
 
 BEECH_TRUNK_HEIGHT = 2.3
@@ -340,11 +342,12 @@ def create_tree(
     system: chrono.ChSystemSMC,
     tree: dict,
 ) -> chrono.ChBody:
-    """Create one detailed GOOSE tree.
+    """Create one detailed, rigid GOOSE tree.
 
-    The tree uses a simple cylinder as its current physics
-    representation and a detailed OBJ model as its visual
-    representation.
+    The tree uses a fixed cylindrical physics body with collision
+    enabled and a detailed OBJ model for visual representation.
+
+    The cylinder is the collision obstacle, not the entire canopy.
     """
 
     tree_id = int(
@@ -381,18 +384,36 @@ def create_tree(
         trunk_height,
         DEFAULT_TREE_TRUNK_DENSITY,
         True,
-        False,
+        True,
     )
 
+    # The GOOSE simulation uses ChSystemSMC.
+    # Explicitly assign an SMC contact material to the collision shape.
+    # The default material created by ChBodyEasyCylinder may not be
+    # compatible with SMC contact handling.
+    #
+    # In a sphere/tree collision test, assigning this material allowed
+    # the collision to complete successfully rather than crashing.
+
+    tree_material = chrono.ChContactMaterialSMC()
+
+    tree_material.SetFriction(
+        DEFAULT_TREE_FRICTION
+    )
+
+    trunk.GetCollisionModel().SetAllShapesMaterial(
+        tree_material
+    )
+
+    # The tree stays upright and cannot move when contacted.
     trunk.SetFixed(
         True
     )
 
     # ChBodyEasyCylinder is centred around the body's origin.
     #
-    # The body is therefore positioned half the trunk height above the
-    # GOOSE terrain position so that the bottom of the cylinder touches
-    # the terrain.
+    # Position the cylinder halfway above the GOOSE terrain height
+    # so its bottom sits on the terrain.
 
     trunk.SetPos(
         chrono.ChVector3d(
@@ -427,9 +448,9 @@ def create_tree(
 
     # The converted OBJ has its base at local Z = 0.
     #
-    # The Chrono body origin is halfway up the simplified physics trunk.
-    # Therefore the visual mesh is shifted downward by half the trunk
-    # height so that its base coincides with the GOOSE terrain position.
+    # The body origin is halfway up the collision cylinder.
+    # Shift the visual mesh downward by half the trunk height
+    # so its base sits on the GOOSE terrain.
 
     visual_frame = chrono.ChFramed(
         chrono.ChVector3d(

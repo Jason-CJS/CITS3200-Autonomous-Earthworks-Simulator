@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "fine": [
+    {"id": 0, "name": "undefined", "color": "#5B6470"},
+    {"id": 16, "name": "forest", "color": "#247346"},
+    {"id": 31, "name": "soil", "color": "#AA7744"},
+    {"id": 38, "name": "building", "color": "#BD5654"},
+    {"id": 50, "name": "low grass", "color": "#8ABB5D"}
+  ],
+  "coarse": [
+    {"id": 0, "name": "ignore", "color": "#5B6470"},
+    {"id": 1, "name": "terrain", "color": [170, 119, 68]},
+    {"id": 2, "name": "vegetation", "color": [36, 115, 70]},
+    {"id": 3, "name": "structure", "color": [189, 86, 84]}
+  ]
+}
