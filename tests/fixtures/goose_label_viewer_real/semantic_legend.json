@@ -1,0 +1,519 @@
+{
+  "classes": [
+    {
+      "coarse_id": 0,
+      "coarse_name": "ignored",
+      "id": 0,
+      "name": "undefined",
+      "source_category": "void"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 1,
+      "name": "traffic_cone",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 2,
+      "coarse_name": "terrain",
+      "id": 2,
+      "name": "snow",
+      "source_category": "terrain"
+    },
+    {
+      "coarse_id": 2,
+      "coarse_name": "terrain",
+      "id": 3,
+      "name": "cobble",
+      "source_category": "terrain"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 4,
+      "name": "obstacle",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 5,
+      "name": "leaves",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 6,
+      "name": "street_light",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 7,
+      "name": "bikeway",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 0,
+      "coarse_name": "ignored",
+      "id": 8,
+      "name": "ego_vehicle",
+      "source_category": "void"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 9,
+      "name": "pedestrian_crossing",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 10,
+      "name": "road_block",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 11,
+      "name": "road_marking",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 12,
+      "name": "car",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 13,
+      "name": "bicycle",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 8,
+      "coarse_name": "human",
+      "id": 14,
+      "name": "person",
+      "source_category": "human"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 15,
+      "name": "bus",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 16,
+      "name": "forest",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 17,
+      "name": "bush",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 18,
+      "name": "moss",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 19,
+      "name": "traffic_light",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 20,
+      "name": "motorcycle",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 21,
+      "name": "sidewalk",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 22,
+      "name": "curb",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 2,
+      "coarse_name": "terrain",
+      "id": 23,
+      "name": "asphalt",
+      "source_category": "terrain"
+    },
+    {
+      "coarse_id": 2,
+      "coarse_name": "terrain",
+      "id": 24,
+      "name": "gravel",
+      "source_category": "terrain"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 25,
+      "name": "boom_barrier",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 5,
+      "coarse_name": "road",
+      "id": 26,
+      "name": "rail_track",
+      "source_category": "road"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 27,
+      "name": "tree_crown",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 28,
+      "name": "tree_trunk",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 29,
+      "name": "debris",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 30,
+      "name": "crops",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 2,
+      "coarse_name": "terrain",
+      "id": 31,
+      "name": "soil",
+      "source_category": "terrain"
+    },
+    {
+      "coarse_id": 8,
+      "coarse_name": "human",
+      "id": 32,
+      "name": "rider",
+      "source_category": "human"
+    },
+    {
+      "coarse_id": 10,
+      "coarse_name": "animal",
+      "id": 33,
+      "name": "animal",
+      "source_category": "animal"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 34,
+      "name": "truck",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 35,
+      "name": "on_rails",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 36,
+      "name": "caravan",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 37,
+      "name": "trailer",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 38,
+      "name": "building",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 39,
+      "name": "wall",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 40,
+      "name": "rock",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 41,
+      "name": "fence",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 42,
+      "name": "guard_rail",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 43,
+      "name": "bridge",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 44,
+      "name": "tunnel",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 45,
+      "name": "pole",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 46,
+      "name": "traffic_sign",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 47,
+      "name": "misc_sign",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 7,
+      "coarse_name": "sign",
+      "id": 48,
+      "name": "barrier_tape",
+      "source_category": "sign"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 49,
+      "name": "kick_scooter",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 50,
+      "name": "low_grass",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 51,
+      "name": "high_grass",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 52,
+      "name": "scenery_vegetation",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 11,
+      "coarse_name": "sky",
+      "id": 53,
+      "name": "sky",
+      "source_category": "sky"
+    },
+    {
+      "coarse_id": 9,
+      "coarse_name": "water",
+      "id": 54,
+      "name": "water",
+      "source_category": "water"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 55,
+      "name": "wire",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 0,
+      "coarse_name": "ignored",
+      "id": 56,
+      "name": "outlier",
+      "source_category": "void"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 57,
+      "name": "heavy_machinery",
+      "source_category": "vehicle"
+    },
+    {
+      "coarse_id": 3,
+      "coarse_name": "structure",
+      "id": 58,
+      "name": "container",
+      "source_category": "construction"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 59,
+      "name": "hedge",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 60,
+      "name": "barrel",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 6,
+      "coarse_name": "object",
+      "id": 61,
+      "name": "pipe",
+      "source_category": "object"
+    },
+    {
+      "coarse_id": 1,
+      "coarse_name": "vegetation",
+      "id": 62,
+      "name": "tree_root",
+      "source_category": "vegetation"
+    },
+    {
+      "coarse_id": 4,
+      "coarse_name": "vehicle",
+      "id": 63,
+      "name": "military_vehicle",
+      "source_category": "vehicle"
+    }
+  ],
+  "coarse_taxonomy": {
+    "categories": [
+      {
+        "id": 0,
+        "name": "ignored"
+      },
+      {
+        "id": 1,
+        "name": "vegetation"
+      },
+      {
+        "id": 2,
+        "name": "terrain"
+      },
+      {
+        "id": 3,
+        "name": "structure"
+      },
+      {
+        "id": 4,
+        "name": "vehicle"
+      },
+      {
+        "id": 5,
+        "name": "road"
+      },
+      {
+        "id": 6,
+        "name": "object"
+      },
+      {
+        "id": 7,
+        "name": "sign"
+      },
+      {
+        "id": 8,
+        "name": "human"
+      },
+      {
+        "id": 9,
+        "name": "water"
+      },
+      {
+        "id": 10,
+        "name": "animal"
+      },
+      {
+        "id": 11,
+        "name": "sky"
+      }
+    ],
+    "name": "project-coarse-v1",
+    "unobserved_id": 255
+  },
+  "fine_taxonomy": {
+    "mapping_sha256": "7ff775a7f198efcb05047aae54a5bcfe9a96aa163bd0a880ae51f4997ffad571",
+    "name": "GOOSE-64",
+    "unobserved_id": 65535
+  },
+  "format_version": 1,
+  "grid_alignment": {
+    "aligned_to": "height_grid.npy",
+    "column_zero": "xmin",
+    "row_zero": "ymax",
+    "x_direction": "increasing",
+    "y_direction": "decreasing"
+  }
+}
