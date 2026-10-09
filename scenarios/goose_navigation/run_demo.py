@@ -102,6 +102,11 @@ def run_demo(args: argparse.Namespace) -> int:
                 "R / F     Raise / lower blade",
                 "T / G     Tilt blade forward / back",
                 "X         Reset blade",
+                "",
+                "Left drag          Rotate camera",
+                "Right drag         Pan camera",
+                "Scroll             Zoom camera",
+                "Left+Right drag    Zoom camera",
             ) if mode == "manual" else (),
             balanced_lighting=True,
         )
@@ -130,9 +135,6 @@ def run_demo(args: argparse.Namespace) -> int:
                     break
                 if controller is not None:
                     controller.update(render_stride * step_size)
-                    position = bulldozer.get_chassis_position()
-                    visual.SetCameraPosition(position + chrono.ChVector3d(4, -10, 6))
-                    visual.SetCameraTarget(position + chrono.ChVector3d(-1, 0, -0.15))
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
