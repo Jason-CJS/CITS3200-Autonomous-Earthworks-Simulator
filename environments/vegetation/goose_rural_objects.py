@@ -103,8 +103,8 @@ def _rock_size_category(index: int, total: int) -> str:
     if index < 0 or index >= total:
         raise ValueError("Rock index is out of range")
 
-    pebble_count = round(total * 0.70)
-    small_count = round(total * 0.25)
+    pebble_count = round(total * 0.40)
+    small_count = round(total * 0.40)
 
     # Prevent rounded counts from exceeding the total.
     small_count = min(small_count, total - pebble_count)
