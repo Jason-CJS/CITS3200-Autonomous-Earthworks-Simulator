@@ -133,14 +133,21 @@ class ExcavatorModel:
         show_rigid_ground: bool = True,
         show_calibration_markers: bool = False,
         initial_z_offset: float = 0.0,
+        initial_xy: tuple[float, float] = (0.0, 0.0),
     ) -> None:
+        if len(initial_xy) != 2 or not all(map(math.isfinite, (*initial_xy, initial_z_offset))):
+            raise ValueError("excavator initial XY and Z offset must be finite coordinates")
         self.system = system
         initial_body_count = len(system.GetBodies())
         self.visual_calibration_path = ASSET_DIR / "visual_calibration.cfg"
         calibration = _load_calibration(self.visual_calibration_path)
 
         def shifted(position: tuple[float, float, float]) -> tuple[float, float, float]:
-            return position[0], position[1], position[2] + initial_z_offset
+            return (
+                position[0] + initial_xy[0],
+                position[1] + initial_xy[1],
+                position[2] + initial_z_offset,
+            )
 
         self.ground = make_box(
             system,
@@ -172,10 +179,10 @@ class ExcavatorModel:
         _style_track_rotor(self.right_track)
 
         boom_pivot = shifted((0.75, 0.0, 2.25))
-        arm_pivot = (boom_pivot[0] + 6.24 * MATHSCAVATOR_SCALE, 0.0, boom_pivot[2])
+        arm_pivot = (boom_pivot[0] + 6.24 * MATHSCAVATOR_SCALE, boom_pivot[1], boom_pivot[2])
         bucket_pivot = (
             arm_pivot[0] - 0.0091425 * MATHSCAVATOR_SCALE,
-            0.0,
+            arm_pivot[1],
             arm_pivot[2] - 2.9796 * MATHSCAVATOR_SCALE,
         )
         self.boom = make_box(system, (2.8, 0.35, 0.35), boom_pivot, YELLOW)

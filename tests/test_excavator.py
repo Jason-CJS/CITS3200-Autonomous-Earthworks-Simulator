@@ -78,6 +78,39 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
                     shifted_z = getattr(shifted_motor, frame_getter)().GetPos().z
                     self.assertAlmostEqual(shifted_z, baseline_z + offset)
 
+    def test_initial_xy_moves_every_vehicle_body_and_joint_together(self) -> None:
+        baseline = ExcavatorModel(chrono.ChSystemSMC(), show_rigid_ground=False)
+        shifted = ExcavatorModel(
+            chrono.ChSystemSMC(), show_rigid_ground=False,
+            initial_xy=(-4.0, 2.0), initial_z_offset=0.3,
+        )
+        for name in ("chassis", "cabin", "left_track", "right_track", "boom", "arm", "bucket"):
+            with self.subTest(body=name):
+                before = getattr(baseline, name).GetPos()
+                after = getattr(shifted, name).GetPos()
+                for axis, offset in (("x", -4.0), ("y", 2.0), ("z", 0.3)):
+                    self.assertAlmostEqual(getattr(after, axis), getattr(before, axis) + offset)
+        baseline_links = (*baseline.joints, baseline.left_track_drive, baseline.right_track_drive)
+        shifted_links = (*shifted.joints, shifted.left_track_drive, shifted.right_track_drive)
+        for before, after in zip(baseline_links, shifted_links, strict=True):
+            for frame in ("GetFrame1Abs", "GetFrame2Abs"):
+                # Keep the owning frames alive while using SWIG's position references.
+                f0, f1 = getattr(before, frame)(), getattr(after, frame)()
+                p0, p1 = f0.GetPos(), f1.GetPos()
+                for axis, offset in (("x", -4.0), ("y", 2.0), ("z", 0.3)):
+                    self.assertAlmostEqual(getattr(p1, axis), getattr(p0, axis) + offset)
+        shifted.set_drive_speeds(0.5, 0.5)
+        for _ in range(100):
+            shifted.advance(0.002)
+        self.assertAlmostEqual(shifted.get_chassis_position().x, -3.9, delta=1e-3)
+        self.assertAlmostEqual(shifted.get_chassis_position().y, 2.0, delta=1e-3)
+        self.assertFalse(shifted.ground.IsCollisionEnabled())
+
+    def test_initial_position_rejects_non_finite_coordinates(self) -> None:
+        for xy in ((float("nan"), 0), (0, float("inf")), (0,)):
+            with self.subTest(xy=xy), self.assertRaisesRegex(ValueError, "finite coordinates"):
+                ExcavatorModel(chrono.ChSystemSMC(), initial_xy=xy)
+
     def test_imported_asset_hashes_match_manifest(self) -> None:
         manifest = ASSET_DIR / "SHA256SUMS"
         for line in manifest.read_text(encoding="utf-8").splitlines():

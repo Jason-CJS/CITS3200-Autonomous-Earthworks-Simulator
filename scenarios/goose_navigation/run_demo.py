@@ -1,4 +1,4 @@
-"""Drive the existing B10 bulldozer across a generated GOOSE-Ex scene."""
+"""Drive the existing bulldozer or excavator across generated GOOSE-Ex terrain."""
 
 from __future__ import annotations
 
@@ -6,54 +6,72 @@ import argparse
 import json
 import math
 from pathlib import Path
+import tempfile
 
 from scenarios.goose_navigation.traversal import (
     SceneGrid,
     TrajectorySample,
     exact_steps,
     write_route_overlay,
+    write_terrain_texture,
     write_trajectory,
 )
+from scenarios.goose_navigation.vehicles import select_vehicle
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "environments/scene_config/alice_scm.json"
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scene", required=True, type=Path, help="generated GOOSE-Ex scene.json")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="SCM configuration JSON")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/goose_navigation"))
     parser.add_argument("--mode", choices=("scripted", "manual"), default="scripted")
-    parser.add_argument("--start-x", type=float, default=0.0, help="bulldozer start X in metres")
-    parser.add_argument("--start-y", type=float, default=0.0, help="bulldozer start Y in metres")
+    parser.add_argument("--vehicle", choices=("bulldozer", "excavator"), default="bulldozer")
+    parser.add_argument("--start-x", type=float, default=0.0, help="vehicle start X in metres")
+    parser.add_argument("--start-y", type=float, default=0.0, help="vehicle start Y in metres")
     parser.add_argument("--speed", type=float, default=0.6, help="scripted track speed in m/s")
     parser.add_argument("--duration", type=float, help="scripted duration (default 6 s); optional manual limit")
     parser.add_argument("--sample-period", type=float, default=0.1, help="trajectory sample interval in seconds")
     parser.add_argument("--headless", action="store_true", help="run without an Irrlicht window")
-    return parser.parse_args()
+    parser.add_argument("--capture", type=Path, metavar="OUTPUT.png",
+                        help="save the final scripted graphical frame")
+    parser.add_argument("--smoke-test", action="store_true",
+                        help="use the null renderer and deterministic manual key inputs")
+    return parser.parse_args(argv)
 
 
-def _sample(bulldozer, time_s: float) -> TrajectorySample:
-    position = bulldozer.get_chassis_position()
+def _sample(vehicle, time_s: float) -> TrajectorySample:
+    position = vehicle.get_chassis_position()
     return TrajectorySample(
         time_s, float(position.x), float(position.y), float(position.z),
-        float(bulldozer.get_chassis_heading()),
+        float(vehicle.get_chassis_heading()),
     )
 
 
 def run_demo(args: argparse.Namespace) -> int:
+    selected = select_vehicle(getattr(args, "vehicle", "bulldozer"))
     scene = SceneGrid.load(args.scene)
     mode = getattr(args, "mode", "scripted")
     if mode not in ("scripted", "manual"):
         raise ValueError("mode must be scripted or manual")
     if mode == "manual" and args.headless:
         raise ValueError("manual mode needs a window; remove --headless")
+    capture = getattr(args, "capture", None)
+    smoke_test = getattr(args, "smoke_test", False)
+    if capture is not None and (args.headless or smoke_test or mode != "scripted"):
+        raise ValueError("--capture needs scripted mode with a graphical renderer")
+    if smoke_test and args.headless:
+        raise ValueError("--smoke-test needs the null graphics renderer; remove --headless")
+    if smoke_test and mode == "manual" and args.duration is None:
+        raise ValueError("manual --smoke-test needs a finite --duration")
     duration = args.duration if args.duration is not None else (6.0 if mode == "scripted" else None)
     if mode == "scripted":
-        scene.validate_route(args.start_x, args.start_y, args.speed, duration)
+        scene.validate_route(args.start_x, args.start_y, args.speed, duration,
+                             footprint=selected.footprint, direction=selected.direction)
     else:
-        scene.validate_start(args.start_x, args.start_y)
+        scene.validate_start(args.start_x, args.start_y, footprint=selected.footprint)
     config_path = args.config.expanduser().resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(config, dict):
@@ -67,67 +85,55 @@ def run_demo(args: argparse.Namespace) -> int:
     import pychrono as chrono
 
     from environments.terrain import goose_environment
-    from vehicles.bulldozer.articulation.bulldozer_model import BulldozerModel
 
     system = goose_environment.create_system()
     terrain = goose_environment.create_terrain(system, scene.path, scene.metadata, config)
-    # The existing B10 track contact surface is approximately 0.15 m below
-    # its default ground height. Follow the local height-grid elevation.
     start_height = scene.height_at(args.start_x, args.start_y)
-    bulldozer = BulldozerModel(
-        system,
-        show_rigid_ground=False,
-        initial_z_offset=start_height - 0.15,
-        initial_xy=(args.start_x, args.start_y),
-    )
-    bulldozer.set_blade_targets(0.12, 0.0)
+    vehicle = selected.create_model(system, (args.start_x, args.start_y), start_height)
     if mode == "scripted":
-        bulldozer.set_drive_speeds(args.speed, args.speed)
+        vehicle.set_drive_speeds(args.speed, args.speed)
     else:
-        bulldozer.set_drive_speeds(0.0, 0.0)
+        vehicle.set_drive_speeds(0.0, 0.0)
 
     visual = None
     if not args.headless:
         from src.demo_common import create_visual_system
 
-        visual = create_visual_system(
-            system,
-            f"GOOSE-Ex - {mode} bulldozer traversal",
-            chrono.ChVector3d(args.start_x + 4, args.start_y - 10, start_height + 7),
-            chrono.ChVector3d(args.start_x - 1, args.start_y, start_height),
-            controls=(
-                "W / S     Drive forward / reverse",
-                "A / D     Steer left / right",
-                "SPACE     Stop",
-                "R / F     Raise / lower blade",
-                "T / G     Tilt blade forward / back",
-                "X         Reset blade",
-                "",
-                "Left drag          Rotate camera",
-                "Right drag         Pan camera",
-                "Scroll             Zoom camera",
-                "Left+Right drag    Zoom camera",
-            ) if mode == "manual" else (),
-            balanced_lighting=True,
-        )
+        terrain.SetMeshWireframe(False)
+        start = chrono.ChVector3d(args.start_x, args.start_y, start_height)
+        # Irrlicht reads the texture while binding the scene, so the file is
+        # only needed until the visual system exists.
+        with tempfile.TemporaryDirectory() as texture_dir:
+            texture_path = Path(texture_dir) / "terrain_texture.png"
+            write_terrain_texture(scene, texture_path)
+            terrain.SetTexture(str(texture_path), 1.0, 1.0)
+            terrain.SetColor(chrono.ChColor(1.0, 1.0, 1.0))
+            visual = create_visual_system(
+                system,
+                f"GOOSE-Ex - {mode} {selected.key} traversal",
+                start + chrono.ChVector3d(*selected.camera_offset),
+                start + chrono.ChVector3d(*selected.camera_target_offset),
+                # Scripted runs take no keys, so keep the view clear of the panel.
+                controls=selected.controls if mode == "manual" else (),
+                null_driver=smoke_test,
+                balanced_lighting=True,
+            )
 
-    samples = [_sample(bulldozer, 0.0)]
+    samples = [_sample(vehicle, 0.0)]
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
     keyboard = controller = timer = None
     if mode == "manual":
-        from src.bulldozer_main import BulldozerController
         from src.demo_common import KeyboardState
 
-        keyboard = KeyboardState()
-        controller = BulldozerController(bulldozer, keyboard)
-        controller.blade[0] = 0.12
+        keyboard = KeyboardState(("w", "q", "r", "t", "y")) if smoke_test else KeyboardState()
+        controller = selected.create_controller(vehicle, keyboard)
         timer = chrono.ChRealtimeStepTimer()
-        print("Controls: W/S drive, A/D steer, Space stop, R/F blade lift, T/G tilt, X reset.")
+        print("Controls:\n" + "\n".join(selected.controls))
         print("Close the window to save the trajectory and route overlay.")
 
     try:
-        if keyboard is not None:
+        if keyboard is not None and not smoke_test:
             keyboard.start()
         while steps is None or completed_steps < steps:
             if visual is not None and completed_steps % render_stride == 0:
@@ -140,20 +146,31 @@ def run_demo(args: argparse.Namespace) -> int:
                 visual.EndScene()
 
             terrain.Synchronize(system.GetChTime())
-            bulldozer.advance(step_size)
+            vehicle.advance(step_size)
             terrain.Advance(step_size)
             completed_steps += 1
             if completed_steps % sample_stride == 0 or completed_steps == steps:
-                samples.append(_sample(bulldozer, completed_steps * step_size))
-            if timer is not None and completed_steps % render_stride == 0:
+                samples.append(_sample(vehicle, completed_steps * step_size))
+            if timer is not None and not smoke_test and completed_steps % render_stride == 0:
                 timer.Spin(render_stride * step_size)
     finally:
-        bulldozer.set_drive_speeds(0.0, 0.0)
+        vehicle.set_drive_speeds(0.0, 0.0)
         if keyboard is not None:
             keyboard.stop()
 
     if completed_steps and samples[-1].time_s < completed_steps * step_size - 1e-9:
-        samples.append(_sample(bulldozer, completed_steps * step_size))
+        samples.append(_sample(vehicle, completed_steps * step_size))
+
+    if capture is not None:
+        capture = capture.expanduser().resolve()
+        capture.parent.mkdir(parents=True, exist_ok=True)
+        visual.BeginScene()
+        visual.Render()
+        visual.EndScene()
+        visual.WriteImageToFile(str(capture))
+        if not capture.is_file():
+            raise OSError(f"Irrlicht did not write the requested screenshot: {capture}")
+        print(f"Screenshot: {capture}")
     displacement = math.hypot(
         samples[-1].x_m - samples[0].x_m,
         samples[-1].y_m - samples[0].y_m,
@@ -169,15 +186,26 @@ def run_demo(args: argparse.Namespace) -> int:
     overlay_path = output_dir / "route_overlay.png"
     manifest_path = output_dir / "run_manifest.json"
     write_trajectory(samples, trajectory_path, scene)
-    write_route_overlay(scene, samples, overlay_path)
+    write_route_overlay(scene, samples, overlay_path, selected.key.capitalize(),
+                        footprint=selected.footprint)
+    get_modified_nodes = getattr(terrain, "GetModifiedNodes", None)
+    modified_nodes = len(get_modified_nodes(True)) if get_modified_nodes is not None else None
     manifest = {
         "format_version": 1,
-        "scenario": "scripted_goose_bulldozer_traversal",
+        "scenario": f"{mode}_goose_{selected.key}_traversal",
         "status": "completed" if completed else "incomplete",
         "source_scene": str(scene.path),
         "source_scene_format_version": scene.metadata["format_version"],
-        "vehicle": "Project Chrono B10 bulldozer",
-        "mode": "scripted_straight_negative_x" if mode == "scripted" else "manual_keyboard",
+        "vehicle": selected.label,
+        "vehicle_key": selected.key,
+        "mode": (f"scripted_straight_{'negative' if selected.direction < 0 else 'positive'}_x"
+                 if mode == "scripted" else "manual_keyboard"),
+        "validated_footprint_m": {
+            "negative_x": selected.footprint.negative_x_m,
+            "positive_x": selected.footprint.positive_x_m,
+            "half_width": selected.footprint.half_width_m,
+        },
+        "scm_modified_nodes": modified_nodes,
         "starting_pose": {
             "x_m": samples[0].x_m,
             "y_m": samples[0].y_m,
@@ -204,12 +232,13 @@ def run_demo(args: argparse.Namespace) -> int:
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(f"Scene: {scene.path}")
-    print(f"Bulldozer traversed {displacement:.2f} m in {completed_steps * step_size:.2f} s")
+    print(f"{selected.key.capitalize()} traversed {displacement:.2f} m in {completed_steps * step_size:.2f} s")
+    print(f"SCM modified soil nodes: {modified_nodes}")
     print(f"Trajectory: {trajectory_path}")
     print(f"Run manifest: {manifest_path}")
     print(f"Route overlay: {overlay_path}")
     if not completed:
-        print("INCOMPLETE: simulation ended early or the bulldozer did not move as expected.")
+        print("INCOMPLETE: simulation ended early or the vehicle did not move as expected.")
         return 2
     return 0
 
@@ -219,7 +248,7 @@ def main() -> int:
     try:
         return run_demo(args)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        print(f"Could not run bulldozer traversal: {exc}")
+        print(f"Could not run vehicle traversal: {exc}")
         return 2
     except ModuleNotFoundError as exc:
         if exc.name != "pychrono":
