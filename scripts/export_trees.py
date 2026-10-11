@@ -56,7 +56,8 @@ def export_trees(
         "method": (
             "connected tree_trunk semantic regions"
         ),
-        "connectivity": 4,
+        # Must match the neighbour count used by find_connected_regions().
+        "connectivity": 8,
         "tree_count": len(trees),
         "trees": trees,
     }
