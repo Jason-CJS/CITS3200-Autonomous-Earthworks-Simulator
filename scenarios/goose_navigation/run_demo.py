@@ -31,6 +31,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--duration", type=float, help="scripted duration (default 6 s); optional manual limit")
     parser.add_argument("--sample-period", type=float, default=0.1, help="trajectory sample interval in seconds")
     parser.add_argument("--headless", action="store_true", help="run without an Irrlicht window")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="fill the screen at the desktop resolution; Esc ends the run")
     return parser.parse_args()
 
 
@@ -49,6 +51,9 @@ def run_demo(args: argparse.Namespace) -> int:
         raise ValueError("mode must be scripted or manual")
     if mode == "manual" and args.headless:
         raise ValueError("manual mode needs a window; remove --headless")
+    fullscreen = getattr(args, "fullscreen", False)
+    if fullscreen and args.headless:
+        raise ValueError("--fullscreen needs a window; remove --headless")
     duration = args.duration if args.duration is not None else (6.0 if mode == "scripted" else None)
     if mode == "scripted":
         scene.validate_route(args.start_x, args.start_y, args.speed, duration)
@@ -109,12 +114,16 @@ def run_demo(args: argparse.Namespace) -> int:
                 "Left+Right drag    Zoom camera",
             ) if mode == "manual" else (),
             balanced_lighting=True,
+            fullscreen=fullscreen,
         )
 
     samples = [_sample(bulldozer, 0.0)]
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
     keyboard = controller = timer = None
+    if visual is not None:
+        # OpenGL draws far faster than real time; pace the run so it stays watchable.
+        timer = chrono.ChRealtimeStepTimer()
     if mode == "manual":
         from src.bulldozer_main import BulldozerController
         from src.demo_common import KeyboardState
@@ -122,16 +131,21 @@ def run_demo(args: argparse.Namespace) -> int:
         keyboard = KeyboardState()
         controller = BulldozerController(bulldozer, keyboard)
         controller.blade[0] = 0.12
-        timer = chrono.ChRealtimeStepTimer()
         print("Controls: W/S drive, A/D steer, Space stop, R/F blade lift, T/G tilt, X reset.")
         print("Close the window to save the trajectory and route overlay.")
+    if fullscreen:
+        # A fullscreen window has no close button: Esc ends the run instead.
+        from src.demo_common import KeyboardState
+
+        keyboard = keyboard or KeyboardState()
+        print("Press Esc to end the run and save its outputs.")
 
     try:
         if keyboard is not None:
             keyboard.start()
         while steps is None or completed_steps < steps:
             if visual is not None and completed_steps % render_stride == 0:
-                if not visual.Run():
+                if not visual.Run() or (fullscreen and keyboard.is_down("esc")):
                     break
                 if controller is not None:
                     controller.update(render_stride * step_size)
