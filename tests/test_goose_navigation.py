@@ -232,8 +232,8 @@ class SceneGridTests(unittest.TestCase):
                 rows = list(csv.DictReader(stream))
             self.assertEqual(manifest["status"], "completed")
             self.assertEqual(manifest["source_scene_format_version"], 2)
-            self.assertEqual(manifest["semantic_labels"]["coarse_map"],
-                             str(root / "semantic_coarse.npy"))
+            self.assertEqual(Path(manifest["semantic_labels"]["coarse_map"]).resolve(),
+            (root / "semantic_coarse.npy").resolve(),)
             self.assertEqual(manifest["semantic_labels"]["taxonomy"], "project-coarse-v1")
             self.assertAlmostEqual(manifest["displacement_m"], 1.0)
             self.assertEqual(len(rows), 5)  # Initial state and four half-second samples.
