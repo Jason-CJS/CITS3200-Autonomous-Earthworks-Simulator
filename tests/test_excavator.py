@@ -7,6 +7,7 @@ import unittest
 import pychrono as chrono
 
 from vehicles.excavator.articulation.excavator_model import ASSET_DIR, ExcavatorModel
+from vehicles.excavator.articulation.excavator_visuals import HydraulicCylinder
 
 
 class ExcavatorAcceptanceTest(unittest.TestCase):
@@ -77,6 +78,21 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
                     baseline_z = getattr(baseline_motor, frame_getter)().GetPos().z
                     shifted_z = getattr(shifted_motor, frame_getter)().GetPos().z
                     self.assertAlmostEqual(shifted_z, baseline_z + offset)
+
+    def test_hydraulic_cylinders_follow_the_moving_arm_without_adding_bodies(self) -> None:
+        excavator = ExcavatorModel(chrono.ChSystemSMC(), show_rigid_ground=False)
+        self.assertEqual(excavator.body_count, 8)
+        self.assertEqual(len(excavator.cylinders), 4)
+        excavator.set_articulation_targets(0.0, 0.3, -0.8, 0.6)
+        for _ in range(300):
+            excavator.advance(0.002)  # advance() refreshes the cylinders itself
+        rod_end = 2 * HydraulicCylinder.SIDES + 1  # centre of the rod's far cap
+        for cylinder in excavator.cylinders:
+            with self.subTest(rod_body=cylinder.rod_body.GetName()):
+                vertex = cylinder.rod.mesh.GetCoordsVertices()[rod_end]
+                drawn = cylinder.base_body.TransformPointLocalToParent(vertex)
+                anchor = cylinder.rod_body.TransformPointLocalToParent(cylinder.rod_local)
+                self.assertLess((drawn - anchor).Length(), 0.05)
 
     def test_imported_asset_hashes_match_manifest(self) -> None:
         manifest = ASSET_DIR / "SHA256SUMS"
