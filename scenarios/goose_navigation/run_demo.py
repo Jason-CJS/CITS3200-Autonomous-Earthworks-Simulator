@@ -105,7 +105,6 @@ def run_demo(args: argparse.Namespace) -> int:
                 "",
                 "Left drag          Rotate camera",
                 "Right drag         Pan camera",
-                "Scroll             Zoom camera",
                 "Left+Right drag    Zoom camera",
             ) if mode == "manual" else (),
             balanced_lighting=True,
