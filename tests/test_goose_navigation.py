@@ -14,6 +14,11 @@ from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
+# The fake runs below wrap sys.modules in patch.dict, which also removes any
+# module first imported inside it. SciPy and Matplotlib have C extensions that
+# cannot be loaded twice in one process, so load the ones the exports use first.
+import matplotlib.pyplot  # noqa: F401
+import scipy.ndimage  # noqa: F401
 
 from environments import terrain as terrain_package
 from environments.terrain.goose_semantics import semantic_legend
