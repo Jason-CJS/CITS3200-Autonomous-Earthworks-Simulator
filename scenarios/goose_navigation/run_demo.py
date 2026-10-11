@@ -135,6 +135,8 @@ def run_demo(args: argparse.Namespace) -> int:
                     break
                 if controller is not None:
                     controller.update(render_stride * step_size)
+                    position = bulldozer.get_chassis_position()
+                    visual.SetCameraTarget(position + chrono.ChVector3d(-1, 0, -0.15))
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
