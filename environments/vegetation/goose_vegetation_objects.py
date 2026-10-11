@@ -70,7 +70,7 @@ DEFAULT_TREE_TRUNK_DENSITY = 700.0
 DEFAULT_TREE_FRICTION = 0.8
 
 
-# Approximate visual model heights after conversion:
+# Approximate unscaled visual model heights after conversion:
 #
 # Beech:
 #     3.80 m
@@ -81,8 +81,8 @@ DEFAULT_TREE_FRICTION = 0.8
 # The collision cylinder represents only the main trunk rather than
 # the complete visual model.
 
-BEECH_TRUNK_HEIGHT = 2.3
-OAK_TRUNK_HEIGHT = 4.5
+BEECH_TRUNK_HEIGHT = 3.105
+OAK_TRUNK_HEIGHT = 3.825
 
 
 # ---------------------------------------------------------------------
@@ -316,15 +316,15 @@ def choose_tree_asset(
 ) -> tuple[str, Path, float]:
     """Choose a deterministic visual tree model.
 
-    Odd tree IDs use the Beech model.
-    Even tree IDs use the Oak model.
+    Three out of every four tree IDs use the Beech model.
+    Every fourth tree ID uses the Oak model.
 
     The GOOSE semantic data determines tree placement, but it does not
     determine whether a particular tree is Beech or Oak. The alternating
     species assignment is therefore only a visual choice.
     """
 
-    if tree_id % 2 == 1:
+    if tree_id % 4 != 0:
         return (
             "beech",
             BEECH_TREE_PATH,
@@ -445,6 +445,24 @@ def create_tree(
     visual_shape = load_visual_mesh(
         mesh_path
     )
+
+    # Enlarge Beech by 35% and reduce Oak by 15% for visual balance.
+    if species == "beech":
+        visual_shape.SetScale(
+            chrono.ChVector3d(
+                1.35,
+                1.35,
+                1.35,
+            )
+        )
+    elif species == "oak":
+        visual_shape.SetScale(
+            chrono.ChVector3d(
+                0.85,
+                0.85,
+                0.85,
+            )
+        )
 
     # The converted OBJ has its base at local Z = 0.
     #

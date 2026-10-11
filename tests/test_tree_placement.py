@@ -41,7 +41,8 @@ class GooseTreePlacementTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             trees.find_class_id(legend, "tree_trunk")
 
-    def test_connected_regions_use_four_neighbours(self):
+    def test_connected_regions_use_eight_neighbours(self):
+        """Diagonally touching trunk cells belong to one region."""
         mask = np.array(
             [
                 [True, True, False, False],
@@ -54,14 +55,10 @@ class GooseTreePlacementTests(unittest.TestCase):
 
         regions = trees.find_connected_regions(mask)
 
-        self.assertEqual(len(regions), 2)
-        self.assertEqual(sorted(len(region) for region in regions), [3, 3])
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(len(regions[0]), 6)
 
-        actual_cells = {
-            cell
-            for region in regions
-            for cell in region
-        }
+        actual_cells = set(regions[0])
 
         expected_cells = {
             (0, 0), (0, 1), (1, 1),
@@ -70,7 +67,7 @@ class GooseTreePlacementTests(unittest.TestCase):
 
         self.assertEqual(actual_cells, expected_cells)
 
-    def test_diagonal_cells_are_separate_regions(self):
+    def test_diagonal_cells_are_connected(self):
         mask = np.array(
             [
                 [True, False],
@@ -81,7 +78,111 @@ class GooseTreePlacementTests(unittest.TestCase):
 
         regions = trees.find_connected_regions(mask)
 
+        self.assertEqual(len(regions), 1)
+        self.assertEqual(set(regions[0]), {(0, 0), (1, 1)})
+
+    def test_disconnected_regions_remain_separate(self):
+        """Distant trunk cells must not be grouped together."""
+        mask = np.array(
+            [
+                [True, False, False, False],
+                [False, False, False, False],
+                [False, False, False, False],
+                [False, False, False, True],
+            ],
+            dtype=bool,
+        )
+
+        regions = trees.find_connected_regions(mask)
+
         self.assertEqual(len(regions), 2)
+
+    def test_small_nearby_fragment_is_filtered(self):
+        """A tiny fragment near a larger trunk should be suppressed."""
+        main_region = [
+            (5, 5),
+            (5, 6),
+            (6, 5),
+            (6, 6),
+        ]
+
+        small_fragment = [(6, 8)]
+
+        filtered = trees.filter_nearby_small_regions(
+            [small_fragment, main_region],
+            x_spacing=0.25,
+            y_spacing=0.25,
+            max_fragment_size=3,
+            filter_distance=1.0,
+        )
+
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(set(filtered[0]), set(main_region))
+
+    def test_isolated_small_region_is_preserved(self):
+        """A small trunk region should survive when no tree is nearby."""
+        main_region = [
+            (10, 10),
+            (10, 11),
+            (11, 10),
+            (11, 11),
+        ]
+
+        isolated_fragment = [(0, 0)]
+
+        filtered = trees.filter_nearby_small_regions(
+            [main_region, isolated_fragment],
+            x_spacing=0.25,
+            y_spacing=0.25,
+        )
+
+        self.assertEqual(len(filtered), 2)
+
+    def test_large_nearby_regions_are_preserved(self):
+        """Do not automatically remove two substantial nearby trunks."""
+        first_region = [
+            (5, 5),
+            (5, 6),
+            (6, 5),
+            (6, 6),
+        ]
+
+        second_region = [
+            (5, 8),
+            (5, 9),
+            (6, 8),
+            (6, 9),
+        ]
+
+        filtered = trees.filter_nearby_small_regions(
+            [first_region, second_region],
+            x_spacing=0.15,
+            y_spacing=0.15,
+        )
+
+        self.assertEqual(len(filtered), 2)
+
+    def test_fragment_filter_is_deterministic(self):
+        """Input ordering should not change the filtered regions."""
+        regions = [
+            [(5, 5), (5, 6), (6, 5), (6, 6)],
+            [(6, 8)],
+            [(20, 20)],
+        ]
+
+        first = trees.filter_nearby_small_regions(
+            regions,
+            x_spacing=0.25,
+            y_spacing=0.25,
+        )
+
+        second = trees.filter_nearby_small_regions(
+            list(reversed(regions)),
+            x_spacing=0.25,
+            y_spacing=0.25,
+        )
+
+        self.assertEqual(first, second)
 
     def test_anchor_is_an_actual_trunk_cell(self):
         region = [
@@ -157,8 +258,8 @@ class GooseTreePlacementTests(unittest.TestCase):
                     "ymax": 20.0,
                 },
                 "grid": {
-                    "x_spacing": 0.5,
-                    "y_spacing": 0.25,
+                    "x_spacing": 2.0,
+                    "y_spacing": 2.0,
                 },
             }
 
@@ -180,6 +281,7 @@ class GooseTreePlacementTests(unittest.TestCase):
 
             self.assertEqual(first_run, second_run)
             self.assertEqual(len(first_run), 2)
+
             self.assertEqual(
                 [placement["region_size"] for placement in first_run],
                 [3, 2],
@@ -194,12 +296,12 @@ class GooseTreePlacementTests(unittest.TestCase):
 
                 self.assertAlmostEqual(
                     placement["x"],
-                    -10.0 + column * 0.5,
+                    -10.0 + column * 2.0,
                 )
 
                 self.assertAlmostEqual(
                     placement["y"],
-                    20.0 - row * 0.25,
+                    20.0 - row * 2.0,
                 )
 
                 self.assertAlmostEqual(
