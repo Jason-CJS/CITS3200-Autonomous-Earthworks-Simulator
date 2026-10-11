@@ -35,6 +35,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--duration", type=float, help="scripted duration (default 6 s); optional manual limit")
     parser.add_argument("--sample-period", type=float, default=0.1, help="trajectory sample interval in seconds")
     parser.add_argument("--headless", action="store_true", help="run without an Irrlicht window")
+    parser.add_argument("--fullscreen", action="store_true",
+                        help="fill the screen at the desktop resolution; Esc ends the run")
     parser.add_argument("--capture", type=Path, metavar="OUTPUT.png",
                         help="save the final scripted graphical frame")
     parser.add_argument("--smoke-test", action="store_true",
@@ -60,6 +62,9 @@ def run_demo(args: argparse.Namespace) -> int:
         raise ValueError("manual mode needs a window; remove --headless")
     capture = getattr(args, "capture", None)
     smoke_test = getattr(args, "smoke_test", False)
+    fullscreen = getattr(args, "fullscreen", False)
+    if fullscreen and (args.headless or smoke_test):
+        raise ValueError("--fullscreen needs a window; remove --headless and --smoke-test")
     if capture is not None and (args.headless or smoke_test or mode != "scripted"):
         raise ValueError("--capture needs scripted mode with a graphical renderer")
     if smoke_test and args.headless:
@@ -117,27 +122,36 @@ def run_demo(args: argparse.Namespace) -> int:
                 controls=selected.controls if mode == "manual" else (),
                 null_driver=smoke_test,
                 balanced_lighting=True,
+                fullscreen=fullscreen,
             )
 
     samples = [_sample(vehicle, 0.0)]
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
     keyboard = controller = timer = None
+    if visual is not None:
+        # OpenGL draws far faster than real time; pace the run so it stays watchable.
+        timer = chrono.ChRealtimeStepTimer()
     if mode == "manual":
         from src.demo_common import KeyboardState
 
         keyboard = KeyboardState(("w", "q", "r", "t", "y")) if smoke_test else KeyboardState()
         controller = selected.create_controller(vehicle, keyboard)
-        timer = chrono.ChRealtimeStepTimer()
         print("Controls:\n" + "\n".join(selected.controls))
         print("Close the window to save the trajectory and route overlay.")
+    if fullscreen:
+        # A fullscreen window has no close button: Esc ends the run instead.
+        from src.demo_common import KeyboardState
+
+        keyboard = keyboard or KeyboardState()
+        print("Press Esc to end the run and save its outputs.")
 
     try:
         if keyboard is not None and not smoke_test:
             keyboard.start()
         while steps is None or completed_steps < steps:
             if visual is not None and completed_steps % render_stride == 0:
-                if not visual.Run():
+                if not visual.Run() or (fullscreen and keyboard.is_down("esc")):
                     break
                 if controller is not None:
                     controller.update(render_stride * step_size)

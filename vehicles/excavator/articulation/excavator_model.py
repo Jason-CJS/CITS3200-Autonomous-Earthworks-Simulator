@@ -10,18 +10,26 @@ import pychrono as chrono
 
 from vehicles.common.chrono_utils import (
     add_box_collision,
-    add_box_visual,
     color,
     make_angle_motor,
     make_box,
     vector,
 )
 from vehicles.common.differential_drive import DifferentialDrive
+from vehicles.excavator.articulation.excavator_visuals import (
+    HydraulicCylinder,
+    add_joint_pin,
+    style_cab,
+    style_track,
+    style_track_rotor,
+)
 
 
 ASSET_DIR = Path(__file__).resolve().parents[1] / "model" / "assets" / "mathscavator9000"
 MATHSCAVATOR_SCALE = 2.8 / 6.24
 YELLOW = (0.95, 0.65, 0.05)
+# Hydraulic cylinders are refreshed at this simulated rate, not every physics step.
+VISUAL_UPDATE_PERIOD_S = 1.0 / 30.0
 
 
 @dataclass(frozen=True)
@@ -87,37 +95,6 @@ def _set_imported_visual(
     body.AddVisualShape(shape, frame)
 
 
-def _style_cab(cabin: chrono.ChBody) -> None:
-    glass = (0.08, 0.18, 0.22)
-    add_box_visual(cabin, (0.035, 1.35, 0.72), (1.01, 0.0, 0.18), glass)
-    add_box_visual(cabin, (1.20, 0.035, 0.72), (0.20, 0.91, 0.18), glass)
-    add_box_visual(cabin, (1.20, 0.035, 0.72), (0.20, -0.91, 0.18), glass)
-    add_box_visual(cabin, (2.15, 1.95, 0.12), (0.0, 0.0, 0.80), (0.92, 0.58, 0.02))
-
-
-def _style_track(chassis: chrono.ChBody, center: tuple[float, float, float]) -> None:
-    add_box_visual(chassis, (3.8, 0.55, 0.65), center, (0.12, 0.12, 0.12))
-    for index in range(13):
-        x = -1.72 + 3.44 * index / 12
-        add_box_visual(
-            chassis,
-            (0.20, 0.60, 0.07),
-            (center[0] + x, center[1], center[2] - 0.36),
-            (0.20, 0.20, 0.19),
-        )
-        add_box_visual(
-            chassis,
-            (0.20, 0.60, 0.07),
-            (center[0] + x, center[1], center[2] + 0.36),
-            (0.20, 0.20, 0.19),
-        )
-
-
-def _style_track_rotor(rotor: chrono.ChBody) -> None:
-    add_box_visual(rotor, (0.45, 0.50, 0.45), (0.0, 0.0, 0.0), (0.18, 0.18, 0.17))
-    add_box_visual(rotor, (0.12, 0.58, 0.10), (0.0, 0.0, 0.25), (0.95, 0.65, 0.05))
-
-
 def _add_joint_marker(body: chrono.ChBody, paint: tuple[float, float, float]) -> None:
     marker = chrono.ChVisualShapeSphere(0.16)
     marker.SetColor(color(paint))
@@ -175,8 +152,8 @@ class ExcavatorModel:
             (0.12, 0.12, 0.12),
             visible=False,
         )
-        _style_track_rotor(self.left_track)
-        _style_track_rotor(self.right_track)
+        style_track_rotor(self.left_track)
+        style_track_rotor(self.right_track)
 
         boom_pivot = shifted((0.75, 0.0, 2.25))
         arm_pivot = (boom_pivot[0] + 6.24 * MATHSCAVATOR_SCALE, boom_pivot[1], boom_pivot[2])
@@ -188,7 +165,7 @@ class ExcavatorModel:
         self.boom = make_box(system, (2.8, 0.35, 0.35), boom_pivot, YELLOW)
         self.arm = make_box(system, (2.2, 0.30, 0.30), arm_pivot, YELLOW)
         self.bucket = make_box(system, (0.9, 0.52, 1.0), bucket_pivot, (0.90, 0.55, 0.03))
-        _style_cab(self.cabin)
+        style_cab(self.cabin)
 
         meshes = {
             "base": _load_mesh("base_link.STL", calibration["base"].scale),
@@ -227,6 +204,9 @@ class ExcavatorModel:
             (0.90, 0.55, 0.03),
         )
         add_box_collision(self.bucket, (0.88, 0.52, 1.00), (-0.384, -0.002, 0.044))
+        add_joint_pin(self.boom, (arm_pivot[0] - boom_pivot[0], 0.0, 0.0))
+        add_joint_pin(self.arm, (bucket_pivot[0] - arm_pivot[0], 0.0, bucket_pivot[2] - arm_pivot[2]),
+                      length=0.60)
         if show_calibration_markers:
             _add_joint_marker(self.boom, (1.0, 0.0, 0.8))
             _add_joint_marker(self.arm, (0.1, 1.0, 0.1))
@@ -234,8 +214,8 @@ class ExcavatorModel:
 
         left_track_center = (0.0, 1.35, -0.27)
         right_track_center = (0.0, -1.35, -0.27)
-        _style_track(self.chassis, left_track_center)
-        _style_track(self.chassis, right_track_center)
+        style_track(self.chassis, left_track_center)
+        style_track(self.chassis, right_track_center)
         add_box_collision(self.chassis, (3.8, 0.55, 0.72), left_track_center)
         add_box_collision(self.chassis, (3.8, 0.55, 0.72), right_track_center)
 
@@ -276,6 +256,15 @@ class ExcavatorModel:
         self.right_track_drive.SetSpeedFunction(chrono.ChFunctionConst(0.0))
         system.Add(self.right_track_drive)
         self.body_count = len(system.GetBodies()) - initial_body_count
+        # Anchors are body-local: twin boom cylinders beside the boom, the arm
+        # cylinder on top of the boom and the bucket cylinder behind the stick.
+        self.cylinders = [
+            *(HydraulicCylinder(self.cabin, (1.05, side * 0.30, -0.40),
+                                self.boom, (1.0, side * 0.30, 0.55), 0.085) for side in (-1, 1)),
+            HydraulicCylinder(self.boom, (1.25, 0.0, 1.14), self.arm, (0.35, 0.0, 0.42), 0.08),
+            HydraulicCylinder(self.arm, (0.36, 0.0, -0.05), self.bucket, (0.16, 0.0, 0.10), 0.065),
+        ]
+        self._time_since_visual_update = 0.0
 
     def set_drive_speeds(self, left: float, right: float) -> None:
         self.drive.set_speeds(left, right)
@@ -289,6 +278,15 @@ class ExcavatorModel:
     def advance(self, step: float) -> None:
         self.drive.synchronize(self.system.GetChTime() + step)
         self.system.DoStepDynamics(step)
+        self._time_since_visual_update += step
+        if self._time_since_visual_update >= VISUAL_UPDATE_PERIOD_S:
+            self.update_visuals()
+
+    def update_visuals(self) -> None:
+        """Move the hydraulic cylinders to follow the joints (display only)."""
+        for cylinder in self.cylinders:
+            cylinder.update()
+        self._time_since_visual_update = 0.0
 
     def get_chassis_position(self) -> chrono.ChVector3d:
         position = self.chassis.GetPos()
