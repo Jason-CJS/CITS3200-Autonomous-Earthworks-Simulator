@@ -230,13 +230,12 @@ def find_connected_regions(
     return regions
 
 
-
 def filter_nearby_small_regions(
     regions: list[list[tuple[int, int]]],
     x_spacing: float,
     y_spacing: float,
     max_fragment_size: int = 3,
-    merge_distance: float = 1.0,
+    filter_distance: float = 2.0,
 ) -> list[list[tuple[int, int]]]:
     """Suppress tiny trunk fragments near an existing tree region.
 
@@ -268,7 +267,7 @@ def filter_nearby_small_regions(
                     (row - other_row) * y_spacing,
                 )
 
-                if distance < merge_distance:
+                if distance < filter_distance:
                     nearby = True
                     break
 

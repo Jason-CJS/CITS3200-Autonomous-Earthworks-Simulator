@@ -113,7 +113,7 @@ class GooseTreePlacementTests(unittest.TestCase):
             x_spacing=0.25,
             y_spacing=0.25,
             max_fragment_size=3,
-            merge_distance=1.0,
+            filter_distance=1.0,
         )
 
         self.assertEqual(len(filtered), 1)
@@ -258,8 +258,8 @@ class GooseTreePlacementTests(unittest.TestCase):
                     "ymax": 20.0,
                 },
                 "grid": {
-                    "x_spacing": 0.5,
-                    "y_spacing": 0.25,
+                    "x_spacing": 2.0,
+                    "y_spacing": 2.0,
                 },
             }
 
@@ -296,12 +296,12 @@ class GooseTreePlacementTests(unittest.TestCase):
 
                 self.assertAlmostEqual(
                     placement["x"],
-                    -10.0 + column * 0.5,
+                    -10.0 + column * 2.0,
                 )
 
                 self.assertAlmostEqual(
                     placement["y"],
-                    20.0 - row * 0.25,
+                    20.0 - row * 2.0,
                 )
 
                 self.assertAlmostEqual(
