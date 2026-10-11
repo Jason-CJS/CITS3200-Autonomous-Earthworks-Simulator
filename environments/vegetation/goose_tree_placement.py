@@ -102,7 +102,7 @@ def find_class_id(
 def find_connected_regions(
     mask: np.ndarray,
 ) -> list[list[tuple[int, int]]]:
-    """Find 4-neighbour connected regions in a boolean mask."""
+    """Find 8-neighbour connected regions in a boolean mask."""
 
     visited = np.zeros(
         mask.shape,
@@ -164,6 +164,22 @@ def find_connected_regions(
                         current_row,
                         current_column + 1,
                     ),
+                    (
+                        current_row - 1,
+                        current_column - 1,
+                    ),
+                    (
+                        current_row - 1,
+                        current_column + 1,
+                    ),
+                    (
+                        current_row + 1,
+                        current_column - 1,
+                    ),
+                    (
+                        current_row + 1,
+                        current_column + 1,
+                    ),
                 ]
 
                 for (
@@ -212,6 +228,56 @@ def find_connected_regions(
             regions.append(region)
 
     return regions
+
+
+
+def filter_nearby_small_regions(
+    regions: list[list[tuple[int, int]]],
+    x_spacing: float,
+    y_spacing: float,
+    max_fragment_size: int = 3,
+    merge_distance: float = 1.0,
+) -> list[list[tuple[int, int]]]:
+    """Suppress tiny trunk fragments near an existing tree region.
+
+    Larger regions are preferred. The surviving tree anchor remains
+    on a genuine trunk-labelled cell. Isolated small regions survive.
+    """
+    import math
+
+    ordered = sorted(
+        regions,
+        key=lambda region: (
+            -len(region),
+            min(region),
+        ),
+    )
+
+    kept = []
+    kept_anchors = []
+
+    for region in ordered:
+        row, column = choose_anchor_cell(region)
+
+        nearby = False
+
+        if len(region) <= max_fragment_size:
+            for other_row, other_column in kept_anchors:
+                distance = math.hypot(
+                    (column - other_column) * x_spacing,
+                    (row - other_row) * y_spacing,
+                )
+
+                if distance < merge_distance:
+                    nearby = True
+                    break
+
+        if not nearby:
+            kept.append(region)
+            kept_anchors.append((row, column))
+
+    # Restore deterministic row-major ordering for tree IDs.
+    return sorted(kept, key=lambda region: min(region))
 
 
 def choose_anchor_cell(
@@ -362,6 +428,12 @@ def generate_tree_placements(
 
     y_spacing = float(
         grid["y_spacing"]
+    )
+
+    regions = filter_nearby_small_regions(
+        regions,
+        x_spacing=x_spacing,
+        y_spacing=y_spacing,
     )
 
     placements = []
