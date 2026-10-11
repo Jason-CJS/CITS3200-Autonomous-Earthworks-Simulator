@@ -79,6 +79,15 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
                     shifted_z = getattr(shifted_motor, frame_getter)().GetPos().z
                     self.assertAlmostEqual(shifted_z, baseline_z + offset)
 
+    def test_imported_asset_hashes_match_manifest(self) -> None:
+        manifest = ASSET_DIR / "SHA256SUMS"
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            expected, filename = line.split(maxsplit=1)
+            asset = ASSET_DIR / filename.lstrip("* ")
+            actual = hashlib.sha256(asset.read_bytes()).hexdigest()
+            self.assertEqual(actual, expected, asset.name)
+
+
     def test_hydraulic_cylinders_follow_the_moving_arm_without_adding_bodies(self) -> None:
         excavator = ExcavatorModel(chrono.ChSystemSMC(), show_rigid_ground=False)
         self.assertEqual(excavator.body_count, 8)
@@ -93,15 +102,6 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
                 drawn = cylinder.base_body.TransformPointLocalToParent(vertex)
                 anchor = cylinder.rod_body.TransformPointLocalToParent(cylinder.rod_local)
                 self.assertLess((drawn - anchor).Length(), 0.05)
-
-    def test_imported_asset_hashes_match_manifest(self) -> None:
-        manifest = ASSET_DIR / "SHA256SUMS"
-        for line in manifest.read_text(encoding="utf-8").splitlines():
-            expected, filename = line.split(maxsplit=1)
-            asset = ASSET_DIR / filename.lstrip("* ")
-            actual = hashlib.sha256(asset.read_bytes()).hexdigest()
-            self.assertEqual(actual, expected, asset.name)
-
 
 if __name__ == "__main__":
     unittest.main()
