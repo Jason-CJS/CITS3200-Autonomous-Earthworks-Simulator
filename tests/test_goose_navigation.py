@@ -138,6 +138,13 @@ class SceneGridTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "map and legend disagree"):
                 SceneGrid.load(path)
 
+    def test_fullscreen_needs_a_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = Namespace(scene=make_scene(Path(tmp)), mode="scripted", headless=True,
+                             fullscreen=True, duration=None)
+            with self.assertRaisesRegex(ValueError, "--fullscreen needs a window"):
+                run_demo(args)
+
     def test_fixed_step_sampling_requires_exact_multiples(self) -> None:
         self.assertEqual(exact_steps(6.0, 0.002, "duration"), 3000)
         self.assertEqual(exact_steps(0.1, 0.002, "sample period"), 50)

@@ -45,6 +45,13 @@ the measured route is saved at that point. Manual mode runs until you close
 the window, or until an optional `--duration` limit (simulated seconds).
 It requires the existing `pynput` dependency in `environment.yml`.
 
+Graphical runs use Irrlicht's OpenGL renderer and play at real-time speed.
+Add `--fullscreen` to fill the primary monitor; press Esc to end the run (its
+outputs are still saved). On Linux the demos set `MESA_SHADER_CACHE_DISABLE=true`
+before opening a window, because Mesa otherwise crashes on the Conda
+environment's `libzstd`. Set `AES_IRRLICHT_DRIVER=software` to use the previous
+CPU renderer instead; it slows down sharply as the window grows.
+
 The default route starts at Chrono coordinates (0, 0), faces negative X,
 travels at 0.6 m/s for 6 simulated seconds, and samples the trajectory every
 0.1 s. For example, to choose another safe starting point and a shorter run:
