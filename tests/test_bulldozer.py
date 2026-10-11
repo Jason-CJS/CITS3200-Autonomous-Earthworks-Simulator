@@ -8,6 +8,20 @@ from vehicles.bulldozer.articulation.bulldozer_model import BulldozerModel
 
 
 class BulldozerAcceptanceTest(unittest.TestCase):
+    def test_b10_can_start_at_a_selected_xy_position(self) -> None:
+        system = chrono.ChSystemNSC()
+        bulldozer = BulldozerModel(
+            system, show_rigid_ground=False, initial_xy=(3.0, -2.0)
+        )
+        start = bulldozer.get_chassis_position()
+        self.assertAlmostEqual(start.x, 3.0)
+        self.assertAlmostEqual(start.y, -2.0)
+        self.assertFalse(bulldozer.ground.IsCollisionEnabled())
+        bulldozer.set_drive_speeds(0.4, 0.4)
+        for _ in range(100):
+            bulldozer.advance(0.001)
+        self.assertLess(bulldozer.get_chassis_position().x, start.x)
+
     def test_b10_loads_moves_toward_blade_and_articulates(self) -> None:
         system = chrono.ChSystemNSC()
         system.SetGravitationalAcceleration(chrono.ChVector3d(0.0, 0.0, -9.81))

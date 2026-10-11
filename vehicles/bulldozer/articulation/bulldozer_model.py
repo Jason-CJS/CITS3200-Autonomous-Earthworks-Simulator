@@ -218,17 +218,22 @@ class BulldozerModel:
         system: chrono.ChSystem,
         show_rigid_ground: bool = True,
         initial_z_offset: float = 0.0,
+        initial_xy: tuple[float, float] = (0.0, 0.0),
     ) -> None:
         self.system = system
         initial_body_count = len(system.GetBodies())
 
         def shifted(position: tuple[float, float, float]) -> tuple[float, float, float]:
-            return position[0], position[1], position[2] + initial_z_offset
+            return (
+                position[0] + initial_xy[0],
+                position[1] + initial_xy[1],
+                position[2] + initial_z_offset,
+            )
 
         self.ground = make_box(
             system,
             (30.0, 20.0, 0.1),
-            (4.0, 0.0, -0.05),
+            shifted((4.0, 0.0, -0.05)),
             (0.38, 0.30, 0.18),
             visible=show_rigid_ground,
         )
