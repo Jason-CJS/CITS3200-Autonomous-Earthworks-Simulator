@@ -81,7 +81,8 @@ CITS3200-AES/
 │   ├── test_goose_heightmap.py
 │   ├── test_goose_label_viewer.py
 │   └── fixtures/
-│       └── goose_scene.tar.gz # Compressed real scene used by viewer tests
+│       ├── goose_label_viewer/      # Synthetic viewer fixture
+│       └── goose_label_viewer_real/ # Real saved scene used by viewer tests
 │
 ├── data/                      # Local dataset files; excluded from Git
 │   └── goose/                # Prepared GOOSE-Ex dataset
@@ -306,9 +307,10 @@ python -m unittest discover -s tests -p 'test_goose_label_viewer.py' -v
 ```
 
 The viewer tests generate small artificial inputs in temporary directories and
-unpack a real saved scene from `tests/fixtures/goose_scene.tar.gz`. Temporary
-files are cleaned up after the tests. The real fixture exercises fine/coarse
-rendering, overlays and consistency with the exported manifest.
+also read directly from the checked-in `tests/fixtures/goose_label_viewer/`
+(synthetic) and `tests/fixtures/goose_label_viewer_real/` (a real saved scene)
+directories. The real fixture exercises fine/coarse rendering, overlays and
+consistency with the exported manifest.
 
 Before merging viewer changes, also have a teammate inspect the maps and
 overlays on another machine and record the result in the PR.
