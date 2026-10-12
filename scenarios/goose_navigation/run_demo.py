@@ -301,6 +301,8 @@ def run_demo(args: argparse.Namespace) -> int:
 
                 if controller is not None:
                     controller.update(render_stride * step_size)
+                    position = vehicle.get_chassis_position()
+                    visual.SetCameraTarget(position + chrono.ChVector3d(*selected.camera_target_offset))
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
