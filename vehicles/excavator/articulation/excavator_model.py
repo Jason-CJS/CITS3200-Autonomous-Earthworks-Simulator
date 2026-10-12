@@ -18,6 +18,7 @@ from vehicles.common.chrono_utils import (
 from vehicles.common.differential_drive import DifferentialDrive
 from vehicles.excavator.articulation.excavator_visuals import (
     HydraulicCylinder,
+    TrackShoes,
     add_joint_pin,
     style_cab,
     style_track,
@@ -30,6 +31,16 @@ MATHSCAVATOR_SCALE = 2.8 / 6.24
 YELLOW = (0.95, 0.65, 0.05)
 # Hydraulic cylinders are refreshed at this simulated rate, not every physics step.
 VISUAL_UPDATE_PERIOD_S = 1.0 / 30.0
+# The bucket is drawn and collides 25% larger than the MathScavator9000 mesh,
+# scaled about its hinge pin (the bucket body origin) so it stays attached.
+BUCKET_SCALE = 1.25
+# Bucket geometry in the bucket body frame, measured from stick_bucket_link.STL.
+BUCKET_TEETH_LOCAL = tuple(BUCKET_SCALE * c for c in (-0.82, 0.0, 0.54))
+BUCKET_OPENING_NORMAL = (0.505, 0.0, 0.863)
+BUCKET_HALF_WIDTH_M = BUCKET_SCALE * 0.26
+# The box that encloses the bucket shell and cavity, used for collision and soil.
+BUCKET_BOX_SIZE = tuple(BUCKET_SCALE * c for c in (0.88, 0.52, 1.00))
+BUCKET_BOX_CENTER = tuple(BUCKET_SCALE * c for c in (-0.384, -0.002, 0.044))
 
 
 @dataclass(frozen=True)
@@ -171,7 +182,7 @@ class ExcavatorModel:
             "base": _load_mesh("base_link.STL", calibration["base"].scale),
             "boom": _load_mesh("chassis_boom_link.STL", calibration["boom"].scale),
             "arm": _load_mesh("boom_stick_link.STL", calibration["arm"].scale),
-            "bucket": _load_mesh("stick_bucket_link.STL", calibration["bucket"].scale),
+            "bucket": _load_mesh("stick_bucket_link.STL", calibration["bucket"].scale * BUCKET_SCALE),
         }
         self._meshes = meshes
         self.imported_vertex_count = sum(mesh.GetNumVertices() for mesh in meshes.values())
@@ -203,7 +214,7 @@ class ExcavatorModel:
             _calibration_frame(calibration["bucket"]),
             (0.90, 0.55, 0.03),
         )
-        add_box_collision(self.bucket, (0.88, 0.52, 1.00), (-0.384, -0.002, 0.044))
+        add_box_collision(self.bucket, BUCKET_BOX_SIZE, BUCKET_BOX_CENTER)
         add_joint_pin(self.boom, (arm_pivot[0] - boom_pivot[0], 0.0, 0.0))
         add_joint_pin(self.arm, (bucket_pivot[0] - arm_pivot[0], 0.0, bucket_pivot[2] - arm_pivot[2]),
                       length=0.60)
@@ -216,6 +227,8 @@ class ExcavatorModel:
         right_track_center = (0.0, -1.35, -0.27)
         style_track(self.chassis, left_track_center)
         style_track(self.chassis, right_track_center)
+        self.track_shoes = (TrackShoes(self.chassis, left_track_center),
+                            TrackShoes(self.chassis, right_track_center))
         add_box_collision(self.chassis, (3.8, 0.55, 0.72), left_track_center)
         add_box_collision(self.chassis, (3.8, 0.55, 0.72), right_track_center)
 
@@ -262,7 +275,8 @@ class ExcavatorModel:
             *(HydraulicCylinder(self.cabin, (1.05, side * 0.30, -0.40),
                                 self.boom, (1.0, side * 0.30, 0.55), 0.085) for side in (-1, 1)),
             HydraulicCylinder(self.boom, (1.25, 0.0, 1.14), self.arm, (0.35, 0.0, 0.42), 0.08),
-            HydraulicCylinder(self.arm, (0.36, 0.0, -0.05), self.bucket, (0.16, 0.0, 0.10), 0.065),
+            HydraulicCylinder(self.arm, (0.36, 0.0, -0.05), self.bucket,
+                              (0.16 * BUCKET_SCALE, 0.0, 0.10 * BUCKET_SCALE), 0.065),
         ]
         self._time_since_visual_update = 0.0
 
@@ -286,7 +300,24 @@ class ExcavatorModel:
         """Move the hydraulic cylinders to follow the joints (display only)."""
         for cylinder in self.cylinders:
             cylinder.update()
+        # Each track motor's angle equals the distance that track has turned.
+        for shoes, distance in zip(self.track_shoes, self.get_track_angles(), strict=True):
+            shoes.update(distance)
         self._time_since_visual_update = 0.0
+
+    def get_bucket_teeth_position(self) -> chrono.ChVector3d:
+        return self.bucket.TransformPointLocalToParent(vector(BUCKET_TEETH_LOCAL))
+
+    def get_bucket_box(self) -> tuple[chrono.ChVector3d, tuple, tuple[float, float, float]]:
+        """World centre, local axes (x, y, z) and half sizes of the bucket's enclosing box."""
+        centre = self.bucket.TransformPointLocalToParent(vector(BUCKET_BOX_CENTER))
+        axes = tuple(self.bucket.TransformDirectionLocalToParent(vector(axis))
+                     for axis in ((1, 0, 0), (0, 1, 0), (0, 0, 1)))
+        return centre, axes, tuple(0.5 * size for size in BUCKET_BOX_SIZE)
+
+    def get_bucket_opening_normal(self) -> chrono.ChVector3d:
+        """Direction the open side of the bucket faces, in world coordinates."""
+        return self.bucket.TransformDirectionLocalToParent(vector(BUCKET_OPENING_NORMAL))
 
     def get_chassis_position(self) -> chrono.ChVector3d:
         position = self.chassis.GetPos()

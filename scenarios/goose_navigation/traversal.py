@@ -310,6 +310,49 @@ def footprint_corners(
     return [(x + u * cos_yaw - v * sin_yaw, y + u * sin_yaw + v * cos_yaw) for u, v in local]
 
 
+def write_soil_change_map(records, spacing: float, path: Path,
+                          title: str = "GOOSE-Ex excavator soil change") -> None:
+    """Map the height change of every modified SCM node: lowered blue, raised red.
+
+    ``records`` are ``DeformationRecord`` values from the shared deformation
+    exporter. Changes under half a millimetre are left blank.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    from matplotlib.colors import TwoSlopeNorm
+    import matplotlib.pyplot as plt
+
+    changed = [r for r in records if abs(r.height_change_m) >= 5e-4]
+    figure, axes = plt.subplots(figsize=(8, 7))
+    if changed:
+        xs = np.array([r.world_x_m for r in changed])
+        ys = np.array([r.world_y_m for r in changed])
+        dz = np.array([r.height_change_m for r in changed])
+        cols = np.round((xs - xs.min()) / spacing).astype(int)
+        rows = np.round((ys - ys.min()) / spacing).astype(int)
+        grid = np.full((rows.max() + 1, cols.max() + 1), np.nan)
+        grid[rows, cols] = dz
+        limit = max(float(np.abs(dz).max()), 1e-3)
+        extent = (xs.min() - spacing / 2, xs.max() + spacing / 2,
+                  ys.min() - spacing / 2, ys.max() + spacing / 2)
+        image = axes.imshow(grid, origin="lower", extent=extent, cmap="RdBu_r",
+                            norm=TwoSlopeNorm(vmin=-limit, vcenter=0.0, vmax=limit))
+        figure.colorbar(image, ax=axes, label="Height change (m)")
+        area = spacing * spacing
+        axes.text(0.02, 0.98, f"Lowered: {-dz[dz < 0].sum() * area:.3f} m3\n"
+                              f"Raised: {dz[dz > 0].sum() * area:.3f} m3",
+                  transform=axes.transAxes, va="top",
+                  bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "none"})
+    else:
+        axes.text(0.5, 0.5, "No soil changed", ha="center", va="center", transform=axes.transAxes)
+    axes.set(xlabel="Chrono X (m)", ylabel="Chrono Y (m)", title=title)
+    axes.set_aspect("equal")
+    figure.tight_layout()
+    figure.savefig(path, dpi=150)
+    plt.close(figure)
+
+
 def write_route_overlay(
     scene: SceneGrid, samples: list[TrajectorySample], path: Path,
     vehicle_name: str = "Bulldozer", *, footprint: VehicleFootprint | None = None,

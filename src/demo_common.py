@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import ctypes
+import math
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 
 import pychrono as chrono
@@ -126,7 +129,14 @@ def create_visual_system(
         )
     else:
         visual.AddTypicalLights()
-    _add_controls_panel(visual, controls, width)
+    # Irrlicht's built-in font is a fixed 14 px bitmap: unreadable at fullscreen
+    # resolutions, so scale the panel and its font with the window height.
+    scale = height / WINDOW_HEIGHT
+    if scale > 1.2 and not null_driver:
+        _use_scaled_gui_font(visual, round(14 * scale))
+    else:
+        scale = 1.0
+    _add_controls_panel(visual, controls, width, scale)
     return visual
 
 
@@ -187,10 +197,94 @@ def _desktop_size() -> tuple[int, int] | None:
         x11.XCloseDisplay(display)
 
 
+def write_bitmap_font(folder: Path, pixel_height: int) -> Path:
+    """Render printable ASCII into an Irrlicht XML bitmap font; return the XML path.
+
+    Irrlicht 1.8 cannot load TrueType fonts, so a larger font is drawn with Pillow.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    # A monospaced font keeps the space-aligned key columns lined up.
+    for name in ("DejaVuSansMono.ttf", "DejaVuSans.ttf"):
+        try:
+            font = ImageFont.truetype(name, pixel_height)
+            break
+        except OSError:
+            continue
+    else:
+        font = ImageFont.load_default(pixel_height)
+    ascent, descent = font.getmetrics()
+    line = ascent + descent
+    chars = [chr(code) for code in range(32, 127)]
+    width, gap = 1024, 2
+    places, x, y = [], 0, 0
+    for char in chars:
+        w = max(1, math.ceil(font.getlength(char)))
+        if x + w > width:
+            x, y = 0, y + line + gap
+        places.append((char, x, y, w))
+        x += w + gap
+    height = 1 << math.ceil(math.log2(y + line + 1))
+    image = Image.new("RGBA", (width, height), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(image)
+    escape = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}
+    entries = []
+    for char, x, y, w in places:
+        draw.text((x, y), char, font=font, fill=(255, 255, 255, 255))
+        entries.append(f'<c c="{escape.get(char, char)}" r="{x}, {y}, {x + w}, {y + line}" />')
+    texture = folder / "gui_font.png"
+    image.save(texture)
+    xml = folder / "gui_font.xml"
+    xml.write_text('<?xml version="1.0"?>\n<font type="bitmap">\n'
+                   f'<Texture index="0" filename="{texture}" hasAlpha="true" />\n'
+                   + "\n".join(entries) + "\n</font>\n", encoding="utf-8")
+    return xml
+
+
+class _IrrPath(ctypes.Structure):
+    """Memory layout of Irrlicht 1.8's ``core::string<char>`` (``io::path``)."""
+
+    _fields_ = [("array", ctypes.c_void_p), ("allocated", ctypes.c_uint32),
+                ("used", ctypes.c_uint32), ("allocator_vtable", ctypes.c_void_p)]
+
+
+def _use_scaled_gui_font(visual: chronoirr.ChVisualSystemIrrlicht, pixel_height: int) -> None:
+    """Make a larger font the GUI default; keep the built-in font if anything fails.
+
+    PyChrono wraps ``IGUIEnvironment::getFont`` but not the ``io::path`` it
+    takes, so, like the driver setter above, the exported functions are called
+    through ctypes. ``getFont`` only copies the file name it is given.
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    folder = Path(tempfile.mkdtemp(prefix="aes-gui-font-"))
+    try:
+        name = str(write_bitmap_font(folder, pixel_height)).encode()
+        chars = ctypes.create_string_buffer(name)
+        path = _IrrPath(ctypes.cast(chars, ctypes.c_void_p), len(name) + 1, len(name) + 1, None)
+        library = ctypes.CDLL(str(Path(chronoirr.__file__).resolve().parents[3] / "libIrrlicht.so"))
+        get_font = library._ZN3irr3gui15CGUIEnvironment7getFontERKNS_4core6stringIcNS2_12irrAllocatorIcEEEE
+        get_font.argtypes = [ctypes.c_void_p, ctypes.POINTER(_IrrPath)]
+        get_font.restype = ctypes.c_void_p
+        set_font = library._ZN3irr3gui8CGUISkin7setFontEPNS0_8IGUIFontENS0_17EGUI_DEFAULT_FONTE
+        set_font.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int]
+        set_font.restype = None
+        gui = visual.GetGUIEnvironment()
+        font = get_font(int(gui.this), ctypes.byref(path))
+        if font:
+            skin = gui.getSkin()  # an unwrapped SWIG pointer: int() gives its address
+            set_font(int(getattr(skin, "this", skin)), font, 0)  # EGDF_DEFAULT
+    except (OSError, AttributeError, ValueError):
+        pass  # the built-in font is small but still works
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)  # Irrlicht has loaded the texture by now
+
+
 def _add_controls_panel(
     visual: chronoirr.ChVisualSystemIrrlicht,
     controls: Iterable[str],
     window_width: int = WINDOW_WIDTH,
+    scale: float = 1.0,
 ) -> None:
     lines = tuple(controls)
     if not lines:
@@ -198,7 +292,8 @@ def _add_controls_panel(
     text = "CONTROLS\n" + "\n".join(lines)
     visual.GetGUIEnvironment().addStaticText(
         text,
-        chronoirr.recti(window_width - 335, 12, window_width - 12, 38 + 17 * len(lines)),
+        chronoirr.recti(window_width - round(335 * scale), round(12 * scale),
+                        window_width - round(12 * scale), round((38 + 17 * len(lines)) * scale)),
         True,
         False,
         None,

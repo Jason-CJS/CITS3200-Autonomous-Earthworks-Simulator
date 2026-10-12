@@ -11,14 +11,18 @@ import tempfile
 from scenarios.goose_navigation.traversal import (
     SceneGrid,
     TrajectorySample,
+    VehicleFootprint,
     exact_steps,
     write_route_overlay,
+    write_soil_change_map,
     write_terrain_texture,
     write_trajectory,
 )
 from scenarios.goose_navigation.vehicles import select_vehicle
+from vehicles.excavator.articulation.dig_cycle import KEYFRAMES, dig_cycle_targets
 
 
+DIG_CYCLE_DEFAULT_S = KEYFRAMES[-1][0]
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "environments/scene_config/alice_scm.json"
 
 # Simplified blade and tree clearance for the straight negative-X route.
@@ -38,18 +42,20 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--scene", required=True, type=Path, help="generated GOOSE-Ex scene.json")
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, help="SCM configuration JSON")
     parser.add_argument("--output-dir", type=Path, default=Path("outputs/goose_navigation"))
-    parser.add_argument("--mode", choices=("scripted", "manual"), default="scripted")
+    parser.add_argument("--mode", choices=("scripted", "manual", "dig"), default="scripted",
+                        help="dig: the excavator scoops soil in front and dumps it to the left")
     parser.add_argument("--vehicle", choices=("bulldozer", "excavator"), default="bulldozer")
     parser.add_argument("--start-x", type=float, default=0.0, help="vehicle start X in metres")
     parser.add_argument("--start-y", type=float, default=0.0, help="vehicle start Y in metres")
     parser.add_argument("--speed", type=float, default=0.6, help="scripted track speed in m/s")
-    parser.add_argument("--duration", type=float, help="scripted duration (default 6 s); optional manual limit")
+    parser.add_argument("--duration", type=float,
+                        help="scripted duration (default 6 s; one cycle for dig); optional manual limit")
     parser.add_argument("--sample-period", type=float, default=0.1, help="trajectory sample interval in seconds")
     parser.add_argument("--headless", action="store_true", help="run without an Irrlicht window")
     parser.add_argument("--fullscreen", action="store_true",
                         help="fill the screen at the desktop resolution; Esc ends the run")
     parser.add_argument("--capture", type=Path, metavar="OUTPUT.png",
-                        help="save the final scripted graphical frame")
+                        help="save the final scripted or dig graphical frame")
     parser.add_argument("--smoke-test", action="store_true",
                         help="use the null renderer and deterministic manual key inputs")
     return parser.parse_args(argv)
@@ -235,9 +241,10 @@ def run_demo(args: argparse.Namespace) -> int:
     selected = select_vehicle(getattr(args, "vehicle", "bulldozer"))
     scene = SceneGrid.load(args.scene)
     mode = getattr(args, "mode", "scripted")
-
-    if mode not in ("scripted", "manual"):
-        raise ValueError("mode must be scripted or manual")
+    if mode not in ("scripted", "manual", "dig"):
+        raise ValueError("mode must be scripted, manual or dig")
+    if mode == "dig" and selected.key != "excavator":
+        raise ValueError("--mode dig needs --vehicle excavator")
     if mode == "manual" and args.headless:
         raise ValueError("manual mode needs a window; remove --headless")
     capture = getattr(args, "capture", None)
@@ -245,17 +252,22 @@ def run_demo(args: argparse.Namespace) -> int:
     fullscreen = getattr(args, "fullscreen", False)
     if fullscreen and (args.headless or smoke_test):
         raise ValueError("--fullscreen needs a window; remove --headless and --smoke-test")
-    if capture is not None and (args.headless or smoke_test or mode != "scripted"):
-        raise ValueError("--capture needs scripted mode with a graphical renderer")
+    if capture is not None and (args.headless or smoke_test or mode == "manual"):
+        raise ValueError("--capture needs scripted or dig mode with a graphical renderer")
     if smoke_test and args.headless:
         raise ValueError("--smoke-test needs the null graphics renderer; remove --headless")
     if smoke_test and mode == "manual" and args.duration is None:
         raise ValueError("manual --smoke-test needs a finite --duration")
-    duration = args.duration if args.duration is not None else (6.0 if mode == "scripted" else None)
-
+    default_duration = {"scripted": 6.0, "dig": DIG_CYCLE_DEFAULT_S, "manual": None}[mode]
+    duration = args.duration if args.duration is not None else default_duration
     if mode == "scripted":
         scene.validate_route(args.start_x, args.start_y, args.speed, duration,
                              footprint=selected.footprint, direction=selected.direction)
+    elif mode == "dig":
+        # The swing to the dump side sweeps the boom's full reach around the cab.
+        reach = selected.footprint.positive_x_m
+        scene.validate_start(args.start_x, args.start_y,
+                             footprint=VehicleFootprint(reach, reach, reach, "excavator swing"))
     else:
         scene.validate_start(args.start_x, args.start_y, footprint=selected.footprint)
     config_path = args.config.expanduser().resolve()
@@ -325,6 +337,7 @@ def run_demo(args: argparse.Namespace) -> int:
 
     if tree_bodies and selected.key == "bulldozer":
         _configure_vehicle_smc(vehicle, chrono)
+    soil = selected.create_soil(terrain, vehicle, scene, config)
     if mode == "scripted":
         vehicle.set_drive_speeds(args.speed, args.speed)
     else:
@@ -359,6 +372,7 @@ def run_demo(args: argparse.Namespace) -> int:
     samples = [_sample(vehicle, 0.0)]
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
+    articulation_stride = max(1, round(0.02 / step_size))
     keyboard = controller = timer = None
     blocked_tree = None
     if visual is not None:
@@ -421,8 +435,12 @@ def run_demo(args: argparse.Namespace) -> int:
                 if manual_hit is not None:
                     vehicle.set_drive_speeds(0.0, 0.0)
 
+            if mode == "dig" and completed_steps % articulation_stride == 0:
+                vehicle.set_articulation_targets(*dig_cycle_targets(completed_steps * step_size))
             terrain.Synchronize(system.GetChTime())
             vehicle.advance(step_size)
+            if soil is not None:
+                soil.advance(step_size)
             terrain.Advance(step_size)
             completed_steps += 1
 
@@ -453,11 +471,12 @@ def run_demo(args: argparse.Namespace) -> int:
         samples[-1].x_m - samples[0].x_m,
         samples[-1].y_m - samples[0].y_m,
     )
-
-    completed = (
-        completed_steps == steps and displacement >= 0.5 * args.speed * duration
-        if mode == "scripted" else completed_steps > 0
-    )
+    if mode == "scripted":
+        completed = completed_steps == steps and displacement >= 0.5 * args.speed * duration
+    elif mode == "dig":
+        completed = completed_steps == steps and soil.deposited_m3 > 0.0
+    else:
+        completed = completed_steps > 0
 
     status = (
         "blocked_by_tree" if blocked_tree is not None
@@ -476,6 +495,31 @@ def run_demo(args: argparse.Namespace) -> int:
                         footprint=selected.footprint)
     get_modified_nodes = getattr(terrain, "GetModifiedNodes", None)
     modified_nodes = len(get_modified_nodes(True)) if get_modified_nodes is not None else None
+    # Runs where the excavator moved soil also get the same deformation export
+    # as the bulldozer hole-filling demo, plus a height-change map.
+    soil_outputs = {}
+    if soil is not None and soil.excavated_m3 > 0.0:
+        from deformation.scm_deformation_export import (
+            collect_deformation_records,
+            write_deformation_export,
+        )
+
+        records = collect_deformation_records(
+            get_modified_nodes(True), soil.spacing,
+            initial_height_at=lambda x, y: terrain.GetInitHeight(chrono.ChVector3d(x, y, 0.0)),
+        )
+        csv_path, summary_path = write_deformation_export(records, output_dir, {
+            "scenario": f"{mode}_goose_excavator",
+            "source_scene": str(scene.path),
+            "scm_grid_spacing_m": soil.spacing,
+            "bucket_capacity_m3": soil.capacity_m3,
+            "bulking_factor": soil.bulking,
+        })
+        change_path = output_dir / "soil_change.png"
+        write_soil_change_map(records, soil.spacing, change_path)
+        soil_outputs = {"deformation_nodes": csv_path.name,
+                        "deformation_summary": summary_path.name,
+                        "soil_change_map": change_path.name}
     manifest = {
         "format_version": 1,
         "scenario": f"{mode}_goose_{selected.key}_traversal",
@@ -484,14 +528,23 @@ def run_demo(args: argparse.Namespace) -> int:
         "source_scene_format_version": scene.metadata["format_version"],
         "vehicle": selected.label,
         "vehicle_key": selected.key,
-        "mode": (f"scripted_straight_{'negative' if selected.direction < 0 else 'positive'}_x"
-                 if mode == "scripted" else "manual_keyboard"),
+        "mode": {
+            "scripted": f"scripted_straight_{'negative' if selected.direction < 0 else 'positive'}_x",
+            "dig": "scripted_dig_and_dump",
+            "manual": "manual_keyboard",
+        }[mode],
         "validated_footprint_m": {
             "negative_x": selected.footprint.negative_x_m,
             "positive_x": selected.footprint.positive_x_m,
             "half_width": selected.footprint.half_width_m,
         },
         "scm_modified_nodes": modified_nodes,
+        "soil": ({
+            "excavated_m3": soil.excavated_m3,
+            "deposited_m3": soil.deposited_m3,
+            "carried_in_bucket_m3": soil.load_m3,
+            "bulking_factor": soil.bulking,
+        } if soil is not None else None),
         "starting_pose": {
             "x_m": samples[0].x_m,
             "y_m": samples[0].y_m,
@@ -514,6 +567,7 @@ def run_demo(args: argparse.Namespace) -> int:
         "outputs": {
             "trajectory": trajectory_path.name,
             "route_overlay": overlay_path.name,
+            **soil_outputs,
         },
     }
 
@@ -534,9 +588,13 @@ def run_demo(args: argparse.Namespace) -> int:
     print(f"{selected.key.capitalize()} traversed {displacement:.2f} m in {completed_steps * step_size:.2f} s")
     print(f"Status: {status}")
     print(f"SCM modified soil nodes: {modified_nodes}")
+    if soil is not None:
+        print(f"Soil excavated: {soil.excavated_m3:.3f} m3, dumped: {soil.deposited_m3:.3f} m3 (loose)")
     print(f"Trajectory: {trajectory_path}")
     print(f"Run manifest: {manifest_path}")
     print(f"Route overlay: {overlay_path}")
+    for name in soil_outputs.values():
+        print(f"Soil output: {output_dir / name}")
 
     if blocked_tree is not None:
         return 0
