@@ -93,6 +93,25 @@ def run_demo(args: argparse.Namespace) -> int:
 
     system = goose_environment.create_system()
     terrain = goose_environment.create_terrain(system, scene.path, scene.metadata, config)
+
+    # Load optional label-derived trees and rural vegetation.
+    # Missing placement files are allowed for older GOOSE scenes.
+    scene_directory = scene.path.parent
+
+    tree_path = scene_directory / "tree_placements.json"
+    if tree_path.is_file():
+        from environments.vegetation.goose_vegetation_objects import create_trees
+
+        tree_bodies = create_trees(system, tree_path)
+        print(f"Loaded {len(tree_bodies)} GOOSE trees.")
+
+    rural_path = scene_directory / "rural_placements.json"
+    if rural_path.is_file():
+        from environments.vegetation.goose_rural_objects import create_rural_objects
+
+        rural_bodies = create_rural_objects(system, rural_path)
+        print(f"Loaded {len(rural_bodies)} GOOSE rural objects.")
+
     start_height = scene.height_at(args.start_x, args.start_y)
     vehicle = selected.create_model(system, (args.start_x, args.start_y), start_height)
     if mode == "scripted":

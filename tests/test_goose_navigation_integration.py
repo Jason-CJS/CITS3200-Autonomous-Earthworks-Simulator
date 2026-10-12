@@ -165,6 +165,62 @@ class NavigationIntegrationTests(unittest.TestCase):
                 self.assertGreater(manifest["displacement_m"], 0.1)
                 self.assertGreater(manifest["scm_modified_nodes"], 0)
 
+    def test_optional_tree_and_rural_placements_load_in_main_demo(self) -> None:
+        """Load available scene objects without requiring them in older scenes."""
+        scene_dir = self.scene_path.parent
+        tree_path = scene_dir / "tree_placements.json"
+        rural_path = scene_dir / "rural_placements.json"
+
+        self.assertFalse(tree_path.exists())
+        self.assertFalse(rural_path.exists())
+
+        from environments.vegetation import (
+            goose_vegetation_objects,
+            goose_rural_objects,
+        )
+
+        try:
+            # Existing scenes without optional vegetation must still run.
+            with patch.object(
+                goose_vegetation_objects, "create_trees"
+            ) as tree_loader, patch.object(
+                goose_rural_objects, "create_rural_objects"
+            ) as rural_loader, redirect_stdout(io.StringIO()):
+                args = self.arguments("bulldozer", "without_rural")
+                self.assertEqual(run_demo(args), 0)
+                tree_loader.assert_not_called()
+                rural_loader.assert_not_called()
+
+            # The main demo should call both loaders when files exist.
+            tree_path.write_text('{"trees": []}', encoding="utf-8")
+            rural_path.write_text('{"placements": []}', encoding="utf-8")
+
+            with patch.object(
+                goose_vegetation_objects,
+                "create_trees",
+                return_value=[],
+            ) as tree_loader, patch.object(
+                goose_rural_objects,
+                "create_rural_objects",
+                return_value=[],
+            ) as rural_loader, redirect_stdout(io.StringIO()):
+                args = self.arguments("bulldozer", "with_rural")
+                self.assertEqual(run_demo(args), 0)
+
+                tree_loader.assert_called_once()
+                rural_loader.assert_called_once()
+
+                self.assertEqual(tree_loader.call_args.args[1], tree_path)
+                self.assertEqual(rural_loader.call_args.args[1], rural_path)
+
+                self.assertIs(
+                    tree_loader.call_args.args[0],
+                    rural_loader.call_args.args[0],
+                )
+        finally:
+            tree_path.unlink(missing_ok=True)
+            rural_path.unlink(missing_ok=True)
+
     def test_imports_do_not_load_chrono_open_windows_or_write_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             code = (
