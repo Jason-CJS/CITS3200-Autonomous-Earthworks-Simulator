@@ -40,7 +40,7 @@ The installed version should read `10.0.0`. Checking via
 `python -c "import pychrono"` is not sufficient — it will succeed even on a
 broken install; always check the version through `conda list`.
 
-> **Known gotcha:** if you ever install PyChrono manually instead of through
+> **Watch out:** if you ever install PyChrono manually instead of through
 > `environment.yml`, it must be channel-pinned:
 > `conda install projectchrono::pychrono=10.0.0 -c conda-forge`. Installing
 > with `-c conda-forge -c projectchrono` alone can silently produce a build
@@ -121,12 +121,17 @@ python -m scenarios.goose_navigation.run_demo --help
 Running `python scenarios/goose_navigation/run_demo.py` directly can prevent
 Python from finding the top-level project package.
 
-**Graphical window doesn't open, or mouse camera control doesn't work** —
-try forcing software rendering:
+**Graphical window doesn't open, or rendering looks wrong** — demos use
+OpenGL by default, which is usually hardware-accelerated and the fastest
+option. If OpenGL fails on your setup, switch to Chrono's own lightweight
+software renderer instead:
 
 ```bash
-env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe python -m <module> ...
+AES_IRRLICHT_DRIVER=software python -m <module> ...
 ```
 
-This is substantially slower than GPU rendering but works reliably under
-WSL2 and over remote displays.
+Avoid `LIBGL_ALWAYS_SOFTWARE=1`/`GALLIUM_DRIVER=llvmpipe` — those force the
+entire graphics stack onto CPU emulation underneath OpenGL itself, which is
+far slower than `AES_IRRLICHT_DRIVER=software` and defeats the point of
+using OpenGL at all. Only reach for them if `AES_IRRLICHT_DRIVER=software`
+still doesn't work.

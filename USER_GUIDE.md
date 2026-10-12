@@ -1,9 +1,9 @@
 # User Guide
 
 This guide covers running the simulator once it's installed — generating
-terrain, viewing semantic labels, driving the bulldozer, and inspecting
-results. If you haven't set up the environment yet, start with
-[INSTALLATION.md](INSTALLATION.md).
+terrain, viewing semantic labels, adding vegetation, driving the bulldozer
+or excavator, and inspecting results. If you haven't set up the environment
+yet, start with [INSTALLATION.md](INSTALLATION.md).
 
 All commands below assume you're running from the repository root with the
 `chrono` Conda environment active (`conda activate chrono`), unless noted
@@ -16,18 +16,22 @@ CITS3200-AES/
 ├── environments/
 │   ├── README.md              # GOOSE setup, generation and launch guide
 │   ├── terrain/                # GOOSE converter, dataset helper and Chrono loader
-│   └── scene_config/           # SCM terrain configuration
+│   ├── scene_config/           # SCM terrain configuration
+│   └── vegetation/             # Tree/vegetation/rural object placement and models
 ├── vehicles/
 │   ├── excavator/
 │   └── bulldozer/
 ├── deformation/                # Terrain deformation export and output inspection
+├── labelling/                  # Semantic label registry and scene manifest export
 ├── scenarios/
 │   ├── bulldozer_earthmoving/  # Scripted hole-filling scenario
 │   ├── goose_label_viewer/     # Semantic label visualisation
-│   └── goose_navigation/       # Scripted/manual bulldozer traversal demo
+│   └── goose_navigation/       # Scripted/manual bulldozer or excavator traversal demo
 ├── scripts/
 │   ├── download_goose_dataset.sh
 │   ├── goose_to_heightmaps.py  # Terrain conversion and Chrono launcher
+│   ├── export_trees.py         # Tree placement export (real collision)
+│   ├── export_vegetation.py    # Generic vegetation placement export (visual only)
 │   └── inspect_outputs.py      # View previous run results without re-simulating
 ├── tests/                      # Automated test suite
 ├── data/goose/                 # Prepared GOOSE-Ex dataset (not in Git)
@@ -129,7 +133,28 @@ unobserved — labels aren't interpolated to fill gaps, so some are expected.
 See [scenarios/goose_label_viewer/README.md](scenarios/goose_label_viewer/README.md)
 for supported formats and error messages.
 
-## 3. Drive the bulldozer across GOOSE terrain
+## 3. Add vegetation (optional, before driving)
+
+Trees and rural vegetation (rocks, grass, bushes, hedges) aren't generated
+automatically with the terrain — export them once per scene, then every
+later run picks them up automatically with no extra flags:
+
+```bash
+python scripts/export_trees.py outputs/goose/<frame-name>/scene.json
+python scripts/export_vegetation.py outputs/goose/<frame-name>/scene.json
+python -m environments.vegetation.goose_rural_placement \
+  --scene outputs/goose/<frame-name>/scene.json \
+  --output outputs/goose/<frame-name>/rural_placements.json \
+  --trees outputs/goose/<frame-name>/tree_placements.json
+```
+
+This writes `tree_placements.json`, `vegetation_placements.json`, and
+`rural_placements.json` next to `scene.json`. The navigation demo below
+auto-detects and loads any of these that are present — nothing to pass on
+the command line. Trees have real physics collision; the other two are
+visual only. Skip this step entirely if you just want bare terrain.
+
+## 4. Drive the bulldozer or excavator across GOOSE terrain
 
 Scripted straight-line traversal, logging trajectory and the semantic class
 under each sampled position:
@@ -141,8 +166,9 @@ python -m scenarios.goose_navigation.run_demo \
   --output-dir outputs/goose_navigation
 ```
 
-Drop `--headless` for a graphical window. To drive it yourself with the
-keyboard instead of the scripted path:
+Add `--vehicle excavator` to drive the excavator instead (default is the
+bulldozer). Drop `--headless` for a graphical window. To drive it yourself
+with the keyboard instead of the scripted path:
 
 ```bash
 python -m scenarios.goose_navigation.run_demo \
@@ -151,23 +177,45 @@ python -m scenarios.goose_navigation.run_demo \
   --output-dir outputs/goose_navigation_manual
 ```
 
-Controls (click the window first to give it focus): `W`/`S` drive,
-`A`/`D` steer, `Space` stop, `R`/`F` raise/lower blade, `T`/`G` tilt blade,
-`X` reset blade. Camera: left-drag to rotate, right-drag to pan, scroll to
-zoom. Close the window to save the run — that's what finishes a manual run
-and writes its outputs.
+Bulldozer controls (click the window first to give it focus): `W`/`S`
+drive, `A`/`D` steer, `Space` stop, `R`/`F` raise/lower blade, `T`/`G` tilt
+blade, `X` reset blade. Excavator (`--vehicle excavator`): `W`/`S` drive,
+`A`/`D` steer, `Q`/`E` swing, `R`/`F` boom, `T`/`G` arm, `Y`/`H` bucket,
+`X` reset articulation. Camera (both): left-drag rotate, right-drag pan,
+left+right-drag zoom. Close the window to save the run.
+
+Other useful flags: `--fullscreen` (fills the screen; `Esc` ends the run
+instead of the close button), `--capture OUTPUT.png` (saves the final frame
+of a scripted run instead of needing to watch it), `--smoke-test`
+(deterministic manual key inputs with the null renderer — mainly for
+automated testing).
+
+### Tree collision
+
+If trees were exported (step 3), the bulldozer treats them as real
+obstacles:
+
+- **Scripted mode**: the bulldozer stops before reaching a tree in its path
+  (`status: "blocked_by_tree"` in the manifest, with the tree ID recorded).
+- **Manual mode**: driving into a tree — forward or reverse — is blocked
+  before contact; the run keeps going and you can steer or reverse away.
+  Encountered tree IDs are recorded in the manifest, but the run doesn't
+  stop. This also applies to the excavator's chassis and boom/arm/bucket.
+
+This only prevents *driving* into a tree — raising/lowering the blade or
+articulating the excavator's arm while stationary near one isn't checked.
 
 Outputs are written to the chosen `--output-dir`:
 
 | File | Contents |
 | --- | --- |
 | `trajectory.csv` | Time, chassis X/Y/Z and yaw, and the semantic class under each sample |
-| `run_manifest.json` | Source scene, starting pose, quality, duration, status |
+| `run_manifest.json` | Source scene, starting pose, quality, duration, status, tree encounters |
 | `route_overlay.png` | Route plotted over the scene's coarse semantic map |
 
 Run `--help` for the full option list.
 
-## 4. Run the bulldozer hole-filling scenario
+## 5. Run the bulldozer hole-filling scenario
 
 A separate, deterministic demonstration scenario — a purpose-built mound and
 target hole, not GOOSE-derived terrain — showing the bulldozer measurably
@@ -179,14 +227,15 @@ python -m scenarios.bulldozer_earthmoving.run_scenario \
   --output-dir outputs/bulldozer_hole_fill
 ```
 
-Drop `--headless` for the graphical version. On WSL you may need software
-rendering:
+Drop `--headless` for the graphical version:
 
 ```bash
-LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe \
 python -m scenarios.bulldozer_earthmoving.run_scenario \
   --output-dir outputs/bulldozer_hole_fill
 ```
+
+If OpenGL rendering fails on your setup, prefix with
+`AES_IRRLICHT_DRIVER=software` (see Common problems below).
 
 The scenario measures the average terrain height inside the target hole
 before and after the pass, and reports `PASSED`/exits non-zero on failure
@@ -195,7 +244,7 @@ minimum 10 modified nodes in the hole). See
 [scenarios/bulldozer_earthmoving/README.md](scenarios/bulldozer_earthmoving/README.md)
 for full details and the reference result.
 
-## 5. Inspect previous run results without re-running anything
+## 6. Inspect previous run results without re-running anything
 
 Every scenario above writes structured JSON output. `scripts/inspect_outputs.py`
 reads it back — listing or summarising previous runs without touching
@@ -236,6 +285,11 @@ python -m unittest discover -s tests -p 'test_goose_label_viewer.py' -v
 python -m unittest discover -s tests -p 'test_bulldozer_earthmoving.py' -v
 python -m unittest discover -s tests -p 'test_goose_navigation.py' -v
 python -m unittest discover -s tests -p 'test_output_inspector.py' -v
+python -m unittest discover -s tests -p 'test_tree_placement.py' -v
+python -m unittest discover -s tests -p 'test_tree_collision.py' -v
+python -m unittest discover -s tests -p 'test_goose_tree_navigation.py' -v
+python -m unittest discover -s tests -p 'test_manual_tree_avoidance.py' -v
+python -m unittest discover -s tests -p 'test_goose_rural_placement.py' -v
 ```
 
 Most of these run without real GOOSE data or PyChrono (synthetic fixtures).
@@ -257,11 +311,13 @@ substitute one of those.
 that `scene.json` references them. Rebuild the frame with `--rebuild` using
 the current converter; older scenes won't have these until regenerated.
 
-**Graphical window doesn't open or camera doesn't respond, especially under
-WSL2** — prefix the command with:
+**Graphical window doesn't open, or rendering looks wrong** — demos use
+OpenGL by default. If it fails on your setup, fall back to Chrono's
+lightweight software renderer instead of forcing the whole graphics stack
+onto software emulation:
 
 ```bash
-env LIBGL_ALWAYS_SOFTWARE=1 GALLIUM_DRIVER=llvmpipe
+AES_IRRLICHT_DRIVER=software python -m <module> ...
 ```
 
 ## Further documentation
