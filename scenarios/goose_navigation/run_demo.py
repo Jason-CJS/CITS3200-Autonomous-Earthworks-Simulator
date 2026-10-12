@@ -21,6 +21,11 @@ from scenarios.goose_navigation.vehicles import select_vehicle
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "environments/scene_config/alice_scm.json"
 
+# Simplified blade and tree clearance for the straight negative-X route.
+BLADE_HALF_DEPTH = 0.10
+BLADE_HALF_WIDTH = 1.95 / 2
+TREE_STOP_MARGIN = 0.10
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -52,10 +57,75 @@ def _sample(vehicle, time_s: float) -> TrajectorySample:
     )
 
 
+def _load_tree_data(path: Path) -> list[dict]:
+    """Read and validate the tree placements used for obstacle checks."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+
+    if not isinstance(data, dict) or not isinstance(data.get("trees"), list):
+        raise ValueError("Tree placement file must contain a 'trees' list")
+
+    for tree in data["trees"]:
+        if not isinstance(tree, dict) or not all(
+            key in tree for key in ("tree_id", "x", "y", "z")
+        ):
+            raise ValueError("Invalid tree placement entry")
+
+        for key in ("x", "y", "z"):
+            value = float(tree[key])
+            if not math.isfinite(value):
+                raise ValueError(f"Tree {tree['tree_id']} has invalid {key}")
+
+    return data["trees"]
+
+
+def _configure_vehicle_smc(bulldozer, chrono) -> None:
+    """Match vehicle collision materials to the GOOSE SMC system."""
+    material = chrono.ChContactMaterialSMC()
+    material.SetFriction(0.8)
+
+    for name in ("chassis", "blade"):
+        body = getattr(bulldozer, name)
+        body.GetCollisionModel().SetAllShapesMaterial(material)
+
+
+def _tree_ahead_of_blade(
+    bulldozer,
+    trees: list[dict],
+    trunk_radius: float,
+) -> dict | None:
+    """Detect a trunk ahead of the blade on the straight negative-X route.
+
+    This is a pre-contact navigation stop, not a force-based impact.
+    """
+    blade = bulldozer.blade.GetPos()
+    clearance = BLADE_HALF_DEPTH + trunk_radius + TREE_STOP_MARGIN
+    lateral_limit = BLADE_HALF_WIDTH + trunk_radius + TREE_STOP_MARGIN
+
+    for tree in trees:
+        distance_ahead = float(blade.x) - float(tree["x"])
+        lateral_distance = abs(float(blade.y) - float(tree["y"]))
+
+        if 0 <= distance_ahead <= clearance and lateral_distance <= lateral_limit:
+            return tree
+
+    return None
+
+
+def _hold_visual_at_obstacle(visual) -> None:
+    """Keep the stopped vehicle visible without advancing physics."""
+    print("Bulldozer stopped. Close the visualization window to finish.", flush=True)
+
+    while visual.Run():
+        visual.BeginScene()
+        visual.Render()
+        visual.EndScene()
+
+
 def run_demo(args: argparse.Namespace) -> int:
     selected = select_vehicle(getattr(args, "vehicle", "bulldozer"))
     scene = SceneGrid.load(args.scene)
     mode = getattr(args, "mode", "scripted")
+
     if mode not in ("scripted", "manual"):
         raise ValueError("mode must be scripted or manual")
     if mode == "manual" and args.headless:
@@ -72,6 +142,7 @@ def run_demo(args: argparse.Namespace) -> int:
     if smoke_test and mode == "manual" and args.duration is None:
         raise ValueError("manual --smoke-test needs a finite --duration")
     duration = args.duration if args.duration is not None else (6.0 if mode == "scripted" else None)
+
     if mode == "scripted":
         scene.validate_route(args.start_x, args.start_y, args.speed, duration,
                              footprint=selected.footprint, direction=selected.direction)
@@ -79,14 +150,15 @@ def run_demo(args: argparse.Namespace) -> int:
         scene.validate_start(args.start_x, args.start_y, footprint=selected.footprint)
     config_path = args.config.expanduser().resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
+
     if not isinstance(config, dict):
         raise ValueError(f"{config_path}: expected an SCM configuration object")
+
     step_size = float(config["step_size"])
     steps = exact_steps(duration, step_size, "duration") if duration is not None else None
     sample_stride = exact_steps(args.sample_period, step_size, "sample period")
 
-    # Chrono is loaded only after the scene and route have been validated.
-    # This also lets --help and the export tests run without PyChrono.
+    # Chrono is imported after validation, as in the original demo.
     import pychrono as chrono
 
     from environments.terrain import goose_environment
@@ -98,12 +170,25 @@ def run_demo(args: argparse.Namespace) -> int:
     # Missing placement files are allowed for older GOOSE scenes.
     scene_directory = scene.path.parent
 
+    tree_bodies = []
+    tree_data = []
+    trunk_radius = None
+
     tree_path = scene_directory / "tree_placements.json"
     if tree_path.is_file():
-        from environments.vegetation.goose_vegetation_objects import create_trees
+        from environments.vegetation.goose_vegetation_objects import (
+            DEFAULT_TREE_TRUNK_RADIUS,
+            create_trees,
+        )
 
         tree_bodies = create_trees(system, tree_path)
         print(f"Loaded {len(tree_bodies)} GOOSE trees.")
+
+        # Pre-contact obstacle stopping currently only supports the
+        # bulldozer's scripted straight-line route; see _tree_ahead_of_blade.
+        if selected.key == "bulldozer" and mode == "scripted":
+            trunk_radius = DEFAULT_TREE_TRUNK_RADIUS
+            tree_data = _load_tree_data(tree_path)
 
     rural_path = scene_directory / "rural_placements.json"
     if rural_path.is_file():
@@ -114,12 +199,16 @@ def run_demo(args: argparse.Namespace) -> int:
 
     start_height = scene.height_at(args.start_x, args.start_y)
     vehicle = selected.create_model(system, (args.start_x, args.start_y), start_height)
+
+    if tree_data:
+        _configure_vehicle_smc(vehicle, chrono)
     if mode == "scripted":
         vehicle.set_drive_speeds(args.speed, args.speed)
     else:
         vehicle.set_drive_speeds(0.0, 0.0)
 
     visual = None
+
     if not args.headless:
         from src.demo_common import create_visual_system
 
@@ -148,6 +237,7 @@ def run_demo(args: argparse.Namespace) -> int:
     completed_steps = 0
     render_stride = max(1, round(1 / (30 * step_size)))
     keyboard = controller = timer = None
+    blocked_tree = None
     if visual is not None:
         # OpenGL draws far faster than real time; pace the run so it stays watchable.
         timer = chrono.ChRealtimeStepTimer()
@@ -168,24 +258,45 @@ def run_demo(args: argparse.Namespace) -> int:
     try:
         if keyboard is not None and not smoke_test:
             keyboard.start()
+
         while steps is None or completed_steps < steps:
             if visual is not None and completed_steps % render_stride == 0:
                 if not visual.Run() or (fullscreen and keyboard.is_down("esc")):
                     break
+
                 if controller is not None:
                     controller.update(render_stride * step_size)
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
 
+            # Stop before the imposed-motion drive moves into a tree.
+            if tree_data:
+                blocked_tree = _tree_ahead_of_blade(
+                    vehicle, tree_data, trunk_radius
+                )
+
+                if blocked_tree is not None:
+                    vehicle.set_drive_speeds(0.0, 0.0)
+                    print(
+                        f"Obstacle detected: stopped before tree {blocked_tree['tree_id']}.",
+                        flush=True,
+                    )
+
+                    if visual is not None:
+                        _hold_visual_at_obstacle(visual)
+                    break
+
             terrain.Synchronize(system.GetChTime())
             vehicle.advance(step_size)
             terrain.Advance(step_size)
             completed_steps += 1
+
             if completed_steps % sample_stride == 0 or completed_steps == steps:
                 samples.append(_sample(vehicle, completed_steps * step_size))
             if timer is not None and not smoke_test and completed_steps % render_stride == 0:
                 timer.Spin(render_stride * step_size)
+
     finally:
         vehicle.set_drive_speeds(0.0, 0.0)
         if keyboard is not None:
@@ -208,9 +319,16 @@ def run_demo(args: argparse.Namespace) -> int:
         samples[-1].x_m - samples[0].x_m,
         samples[-1].y_m - samples[0].y_m,
     )
+
     completed = (
         completed_steps == steps and displacement >= 0.5 * args.speed * duration
         if mode == "scripted" else completed_steps > 0
+    )
+
+    status = (
+        "blocked_by_tree" if blocked_tree is not None
+        else "completed" if completed
+        else "incomplete"
     )
 
     output_dir = args.output_dir.expanduser().resolve()
@@ -218,6 +336,7 @@ def run_demo(args: argparse.Namespace) -> int:
     trajectory_path = output_dir / "trajectory.csv"
     overlay_path = output_dir / "route_overlay.png"
     manifest_path = output_dir / "run_manifest.json"
+
     write_trajectory(samples, trajectory_path, scene)
     write_route_overlay(scene, samples, overlay_path, selected.key.capitalize(),
                         footprint=selected.footprint)
@@ -226,7 +345,7 @@ def run_demo(args: argparse.Namespace) -> int:
     manifest = {
         "format_version": 1,
         "scenario": f"{mode}_goose_{selected.key}_traversal",
-        "status": "completed" if completed else "incomplete",
+        "status": status,
         "source_scene": str(scene.path),
         "source_scene_format_version": scene.metadata["format_version"],
         "vehicle": selected.label,
@@ -263,16 +382,35 @@ def run_demo(args: argparse.Namespace) -> int:
             "route_overlay": overlay_path.name,
         },
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if tree_bodies:
+        manifest["trees"] = {
+            "placement_file": str(tree_path),
+            "count": len(tree_bodies),
+            "obstacle_handling": "scripted_pre_contact_stop" if tree_data else None,
+            "blocked_tree_id": blocked_tree["tree_id"] if blocked_tree is not None else None,
+        }
+
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
     print(f"Scene: {scene.path}")
     print(f"{selected.key.capitalize()} traversed {displacement:.2f} m in {completed_steps * step_size:.2f} s")
+    print(f"Status: {status}")
     print(f"SCM modified soil nodes: {modified_nodes}")
     print(f"Trajectory: {trajectory_path}")
     print(f"Run manifest: {manifest_path}")
     print(f"Route overlay: {overlay_path}")
+
+    if blocked_tree is not None:
+        return 0
+
     if not completed:
         print("INCOMPLETE: simulation ended early or the vehicle did not move as expected.")
         return 2
+
     return 0
 
 
