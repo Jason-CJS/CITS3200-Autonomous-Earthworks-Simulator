@@ -111,6 +111,90 @@ def _tree_ahead_of_blade(
     return None
 
 
+
+def _manual_tree_collision(vehicle, vehicle_key, trees, trunk_radius):
+    """Predict unsafe driving movement into a tree.
+
+    The bulldozer blade uses its actual XY rectangle dimensions.
+    Other components use conservative circular approximations.
+    Articulation commands are not evaluated by this function.
+    """
+    now = vehicle.system.GetChTime()
+    current_pose = vehicle.drive.evaluate(now)
+    future_pose = vehicle.drive.evaluate(now + 0.15)
+
+    dx = future_pose.x - current_pose.x
+    dy = future_pose.y - current_pose.y
+    d_heading = future_pose.heading - current_pose.heading
+
+    if abs(dx) + abs(dy) + abs(d_heading) < 1e-10:
+        return None
+
+    chassis = vehicle.get_chassis_position()
+    cx, cy = float(chassis.x), float(chassis.y)
+    cos_a, sin_a = math.cos(d_heading), math.sin(d_heading)
+
+    def future_point(x, y):
+        rx, ry = x - cx, y - cy
+        return (
+            cx + dx + cos_a * rx - sin_a * ry,
+            cy + dy + sin_a * rx + cos_a * ry,
+        )
+
+    def rectangle_clearance(px, py, bx, by, heading, half_depth, half_width):
+        rx, ry = px - bx, py - by
+        c, s = math.cos(heading), math.sin(heading)
+        local_x = c * rx + s * ry
+        local_y = -s * rx + c * ry
+        outside_x = max(abs(local_x) - half_depth, 0.0)
+        outside_y = max(abs(local_y) - half_width, 0.0)
+        return math.hypot(outside_x, outside_y)
+
+    if vehicle_key == "bulldozer":
+        components = ((vehicle.chassis, 1.15),)
+    else:
+        components = (
+            (vehicle.chassis, 1.65),
+            (vehicle.boom, 1.10),
+            (vehicle.arm, 0.85),
+            (vehicle.bucket, 0.85),
+        )
+
+    for tree in trees:
+        tx, ty = float(tree["x"]), float(tree["y"])
+
+        if vehicle_key == "bulldozer":
+            blade = vehicle.blade.GetPos()
+            heading = vehicle.get_chassis_heading()
+            bx, by = float(blade.x), float(blade.y)
+            fx, fy = future_point(bx, by)
+
+            before = rectangle_clearance(
+                tx, ty, bx, by, heading, 0.10, 0.975
+            )
+            after = rectangle_clearance(
+                tx, ty, fx, fy, heading + d_heading, 0.10, 0.975
+            )
+            limit = trunk_radius + TREE_STOP_MARGIN
+
+            if after < limit and after < before - 1e-6:
+                return tree
+
+        for body, radius in components:
+            pos = body.GetPos()
+            x, y = float(pos.x), float(pos.y)
+            fx, fy = future_point(x, y)
+
+            before = math.hypot(x - tx, y - ty)
+            after = math.hypot(fx - tx, fy - ty)
+            limit = radius + trunk_radius + TREE_STOP_MARGIN
+
+            if after < limit and after < before - 1e-6:
+                return tree
+
+    return None
+
+
 def _hold_visual_at_obstacle(visual) -> None:
     """Keep the stopped vehicle visible without advancing physics."""
     print("Bulldozer stopped. Close the visualization window to finish.", flush=True)
@@ -172,6 +256,7 @@ def run_demo(args: argparse.Namespace) -> int:
 
     tree_bodies = []
     tree_data = []
+    manual_tree_data = []
     trunk_radius = None
 
     tree_path = scene_directory / "tree_placements.json"
@@ -189,6 +274,9 @@ def run_demo(args: argparse.Namespace) -> int:
         if selected.key == "bulldozer" and mode == "scripted":
             trunk_radius = DEFAULT_TREE_TRUNK_RADIUS
             tree_data = _load_tree_data(tree_path)
+        elif mode == "manual":
+            trunk_radius = DEFAULT_TREE_TRUNK_RADIUS
+            manual_tree_data = _load_tree_data(tree_path)
 
     rural_path = scene_directory / "rural_placements.json"
     if rural_path.is_file():
@@ -200,7 +288,7 @@ def run_demo(args: argparse.Namespace) -> int:
     start_height = scene.height_at(args.start_x, args.start_y)
     vehicle = selected.create_model(system, (args.start_x, args.start_y), start_height)
 
-    if tree_data:
+    if tree_bodies and selected.key == "bulldozer":
         _configure_vehicle_smc(vehicle, chrono)
     if mode == "scripted":
         vehicle.set_drive_speeds(args.speed, args.speed)
@@ -286,6 +374,15 @@ def run_demo(args: argparse.Namespace) -> int:
                     if visual is not None:
                         _hold_visual_at_obstacle(visual)
                     break
+
+            # Manual movement: prevent driving the vehicle or its current
+            # attachments farther into a tree, while permitting escape.
+            if manual_tree_data:
+                manual_hit = _manual_tree_collision(
+                    vehicle, selected.key, manual_tree_data, trunk_radius
+                )
+                if manual_hit is not None:
+                    vehicle.set_drive_speeds(0.0, 0.0)
 
             terrain.Synchronize(system.GetChTime())
             vehicle.advance(step_size)
