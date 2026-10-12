@@ -52,4 +52,4 @@ if ! "$python_command" -c "import pychrono, pychrono.irrlicht, pychrono.vehicle"
 fi
 
 cd "$repo_dir"
-exec "$python_command" -m "src.${vehicle}_main" "${demo_args[@]}"
+exec "$python_command" -m "src.${vehicle}_main" ${demo_args[@]+"${demo_args[@]}"}
