@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import ctypes
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import threading
 
@@ -14,6 +17,11 @@ import pychrono.irrlicht as chronoirr
 
 WINDOW_WIDTH = 1024
 WINDOW_HEIGHT = 576
+
+# Irrlicht E_DRIVER_TYPE values; the Linux PyChrono wrapper omits the enum.
+NULL_DRIVER = 0
+SOFTWARE_DRIVER = 2  # BurningVideo: CPU rendering, slows down as the window grows
+OPENGL_DRIVER = 5
 
 
 class KeyboardState:
@@ -35,6 +43,8 @@ class KeyboardState:
         def key_name(key: object) -> str | None:
             if key == keyboard.Key.space:
                 return "space"
+            if key == keyboard.Key.esc:
+                return "esc"
             char = getattr(key, "char", None)
             return char.lower() if isinstance(char, str) else None
 
@@ -78,6 +88,7 @@ def create_visual_system(
     controls: Iterable[str] = (),
     null_driver: bool = False,
     balanced_lighting: bool = False,
+    fullscreen: bool = False,
 ) -> chronoirr.ChVisualSystemIrrlicht:
     visual = chronoirr.ChVisualSystemIrrlicht()
     # The official PyChrono 10 Conda wrapper crashes while destroying this
@@ -85,8 +96,12 @@ def create_visual_system(
     # for the process lifetime, so let the operating system reclaim it.
     visual.thisown = False
     visual.AttachSystem(system)
-    _set_linux_irrlicht_driver(visual, 0 if null_driver else 2)
-    visual.SetWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    _set_linux_irrlicht_driver(visual, NULL_DRIVER if null_driver else _window_driver())
+    width, height = WINDOW_WIDTH, WINDOW_HEIGHT
+    if fullscreen and not null_driver:
+        width, height = _desktop_size() or (width, height)
+        visual.EnableFullscreen(True)
+    visual.SetWindowSize(width, height)
     visual.SetWindowTitle(title)
     visual.SetCameraVertical(chrono.CameraVerticalDir_Z)
     visual.Initialize()
@@ -111,13 +126,71 @@ def create_visual_system(
         )
     else:
         visual.AddTypicalLights()
-    _add_controls_panel(visual, controls)
+    _add_controls_panel(visual, controls, width)
     return visual
+
+
+def _window_driver() -> int:
+    """OpenGL unless AES_IRRLICHT_DRIVER=software asks for the CPU renderer.
+
+    Ubuntu's Mesa decompresses its shader disk cache with zstd. Inside the
+    Conda environment it binds to the environment's own libzstd build and
+    crashes while creating the OpenGL context, so that cache is turned off
+    (Irrlicht's few shaders compile in milliseconds). This must happen before
+    the first context is created.
+    """
+    if os.environ.get("AES_IRRLICHT_DRIVER", "opengl").lower() in ("software", "burning"):
+        return SOFTWARE_DRIVER
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("MESA_SHADER_CACHE_DISABLE", "true")
+    return OPENGL_DRIVER
+
+
+def _primary_monitor_size(xrandr_output: str) -> tuple[int, int] | None:
+    """The primary monitor's size from xrandr --current, else the first connected one."""
+    monitors = re.findall(r"^\S+ connected (primary )?(\d+)x(\d+)\+", xrandr_output, re.MULTILINE)
+    if not monitors:
+        return None
+    _, width, height = ([m for m in monitors if m[0]] or monitors)[0]
+    return int(width), int(height)
+
+
+def _desktop_size() -> tuple[int, int] | None:
+    """The primary monitor's resolution, so a fullscreen window fills one screen.
+
+    With several monitors the X screen spans all of them, so xrandr is asked
+    first; the whole X screen is the fallback when xrandr is not installed.
+    """
+    try:
+        output = subprocess.run(["xrandr", "--current"], capture_output=True, text=True,
+                                timeout=5, check=True).stdout
+        if size := _primary_monitor_size(output):
+            return size
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        x11 = ctypes.CDLL("libX11.so.6")
+    except OSError:
+        return None
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+    x11.XDefaultScreen.argtypes = [ctypes.c_void_p]
+    x11.XDisplayWidth.argtypes = x11.XDisplayHeight.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    display = x11.XOpenDisplay(None)
+    if not display:
+        return None
+    try:
+        screen = x11.XDefaultScreen(display)
+        return x11.XDisplayWidth(display, screen), x11.XDisplayHeight(display, screen)
+    finally:
+        x11.XCloseDisplay(display)
 
 
 def _add_controls_panel(
     visual: chronoirr.ChVisualSystemIrrlicht,
     controls: Iterable[str],
+    window_width: int = WINDOW_WIDTH,
 ) -> None:
     lines = tuple(controls)
     if not lines:
@@ -125,7 +198,7 @@ def _add_controls_panel(
     text = "CONTROLS\n" + "\n".join(lines)
     visual.GetGUIEnvironment().addStaticText(
         text,
-        chronoirr.recti(WINDOW_WIDTH - 335, 12, WINDOW_WIDTH - 12, 38 + 17 * len(lines)),
+        chronoirr.recti(window_width - 335, 12, window_width - 12, 38 + 17 * len(lines)),
         True,
         False,
         None,
@@ -137,9 +210,8 @@ def _add_controls_panel(
 def _set_linux_irrlicht_driver(visual: chronoirr.ChVisualSystemIrrlicht, driver: int) -> None:
     """Set an Irrlicht enum omitted by the official PyChrono 10 Linux wrapper.
 
-    Driver 0 is the null renderer used by tests. Driver 2 is Irrlicht's
-    platform-independent Burning renderer; the Conda package's OpenGL backend
-    crashes on current Wayland/Xwayland desktops.
+    See NULL_DRIVER, SOFTWARE_DRIVER and OPENGL_DRIVER, and ``_window_driver``
+    for why OpenGL needs Mesa's shader cache turned off.
     """
 
     if not sys.platform.startswith("linux"):
@@ -159,7 +231,7 @@ def _set_linux_irrlicht_driver(visual: chronoirr.ChVisualSystemIrrlicht, driver:
 def _allow_linux_non_power_of_two_textures(
     visual: chronoirr.ChVisualSystemIrrlicht,
 ) -> None:
-    """Keep 2D images at their original aspect ratio with BurningVideo.
+    """Keep 2D images at their original aspect ratio (needed by BurningVideo).
 
     PyChrono omits Irrlicht's texture-creation enum from its Linux wrapper.
     BurningVideo supports non-power-of-two textures for GUI images, including

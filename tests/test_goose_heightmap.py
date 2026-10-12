@@ -90,8 +90,14 @@ class GooseHeightmapTests(unittest.TestCase):
                 root, "val", "alice_scenario02", "07", 0
             )
 
-            self.assertEqual(selected_cloud, pointcloud_path)
-            self.assertEqual(selected_label, label_path)
+            self.assertEqual(
+    selected_cloud.resolve(),
+    pointcloud_path.resolve(),
+)
+            self.assertEqual(
+    selected_label.resolve(),
+    label_path.resolve(),
+)
 
     def test_end_to_end_scene_generation(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -19,6 +19,22 @@ VEHICLE_MARGIN_M = 1.8
 
 
 @dataclass(frozen=True)
+class VehicleFootprint:
+    """Conservative horizontal bounds relative to the chassis at heading zero."""
+
+    negative_x_m: float
+    positive_x_m: float
+    half_width_m: float
+    name: str
+
+
+BULLDOZER_FOOTPRINT = VehicleFootprint(1.8, 1.8, 1.8, "bulldozer")
+# Includes the raised traversal boom/bucket, track shoes and a small margin.
+# Articulating/swinging in manual mode can extend beyond these initial bounds.
+EXCAVATOR_FOOTPRINT = VehicleFootprint(2.0, 5.5, 1.7, "excavator")
+
+
+@dataclass(frozen=True)
 class SceneGrid:
     path: Path
     metadata: dict
@@ -153,33 +169,42 @@ class SceneGrid:
             + dr * ((1 - dc) * self.heights[r1, c0] + dc * self.heights[r1, c1])
         )
 
-    def validate_route(self, start_x: float, start_y: float, speed: float, duration: float) -> None:
-        """Keep the bulldozer and its blade within the rectangular terrain."""
+    def validate_route(
+        self, start_x: float, start_y: float, speed: float, duration: float,
+        *, footprint: VehicleFootprint = BULLDOZER_FOOTPRINT, direction: int = -1,
+    ) -> None:
+        """Keep the selected vehicle's straight route inside the terrain."""
         if not all(map(math.isfinite, (start_x, start_y, speed, duration))):
             raise ValueError("start coordinates, speed, and duration must be finite")
         if speed <= 0 or duration <= 0:
             raise ValueError("speed and duration must be greater than zero")
-        self.validate_start(start_x, start_y)
-        end_x = start_x - speed * duration  # Positive B10 track speeds face negative X.
+        if direction not in (-1, 1):
+            raise ValueError("scripted direction must be -1 or 1")
+        self.validate_start(start_x, start_y, footprint=footprint)
+        end_x = start_x + direction * speed * duration
         if not (
-            -self.size_x / 2 + VEHICLE_MARGIN_M <= min(start_x, end_x)
-            and max(start_x, end_x) <= self.size_x / 2 - VEHICLE_MARGIN_M
-            and abs(start_y) <= self.size_y / 2 - VEHICLE_MARGIN_M
+            -self.size_x / 2 + footprint.negative_x_m <= min(start_x, end_x)
+            and max(start_x, end_x) <= self.size_x / 2 - footprint.positive_x_m
+            and abs(start_y) <= self.size_y / 2 - footprint.half_width_m
         ):
             raise ValueError(
-                "scripted route or bulldozer footprint leaves the generated terrain; "
+                f"scripted route or {footprint.name} footprint leaves the generated terrain; "
                 "adjust --start-x, --start-y, --speed, or --duration"
             )
 
-    def validate_start(self, start_x: float, start_y: float) -> None:
+    def validate_start(
+        self, start_x: float, start_y: float,
+        *, footprint: VehicleFootprint = BULLDOZER_FOOTPRINT,
+    ) -> None:
         """Keep the starting vehicle footprint within the terrain."""
         if not all(map(math.isfinite, (start_x, start_y))):
             raise ValueError("start coordinates must be finite")
         if (
-            abs(start_x) > self.size_x / 2 - VEHICLE_MARGIN_M
-            or abs(start_y) > self.size_y / 2 - VEHICLE_MARGIN_M
+            start_x < -self.size_x / 2 + footprint.negative_x_m
+            or start_x > self.size_x / 2 - footprint.positive_x_m
+            or abs(start_y) > self.size_y / 2 - footprint.half_width_m
         ):
-            raise ValueError("bulldozer starting footprint leaves the generated terrain")
+            raise ValueError(f"{footprint.name} starting footprint leaves the generated terrain")
 
 
 def exact_steps(duration: float, step: float, name: str) -> int:
@@ -216,11 +241,85 @@ def write_trajectory(samples: list[TrajectorySample], path: Path, scene: SceneGr
             ))
 
 
-def write_route_overlay(scene: SceneGrid, samples: list[TrajectorySample], path: Path) -> None:
+# Natural ground colours for the coarse GOOSE classes. Anything else, including
+# unobserved cells, is drawn as bare soil because the converter treats it as ground.
+TERRAIN_COLOURS = {
+    "vegetation": (0.36, 0.48, 0.22),
+    "terrain": (0.55, 0.42, 0.28),
+    "road": (0.46, 0.45, 0.43),
+    "structure": (0.55, 0.54, 0.52),
+    "water": (0.30, 0.36, 0.38),
+}
+SOIL_COLOUR = (0.56, 0.47, 0.34)
+
+
+def write_terrain_texture(scene: SceneGrid, path: Path, size: int = 1024) -> None:
+    """Save a display texture for the SCM mesh: semantic colours, hillshade and grain.
+
+    ``size`` must be a multiple of 32 so every grain octave fills the image.
+
+    The image's top row is the scene's ymax edge, matching the height grid;
+    Chrono flips the mesh's V coordinate when it hands it to Irrlicht.
+    """
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.image
+    from scipy import ndimage
+
+    rows, cols = scene.heights.shape
+    colours = np.empty((rows, cols, 3))
+    colours[:] = SOIL_COLOUR
+    if scene.coarse_labels is not None:
+        for category, name in scene.coarse_names.items():
+            if name in TERRAIN_COLOURS:
+                colours[scene.coarse_labels == category] = TERRAIN_COLOURS[name]
+    # Soften the class edges so the cells do not read as pixels on the ground.
+    colours = ndimage.gaussian_filter(colours, sigma=(1.0, 1.0, 0))
+
+    # Light from the north-west (-X, +Y). Rows run towards -Y, so slopes that
+    # rise with the column or row index face the light.
+    dz_drow, dz_dcol = np.gradient(scene.heights, scene.size_y / (rows - 1),
+                                   scene.size_x / (cols - 1))
+    shade = np.clip(0.8 + 0.9 * (dz_drow + dz_dcol), 0.5, 1.15)
+
+    zoom = (size / rows, size / cols)
+    colours = ndimage.zoom(colours, (*zoom, 1), order=1)
+    shade = ndimage.zoom(shade, zoom, order=1)
+    # Fixed-seed grain: identical runs produce identical frames.
+    rng = np.random.default_rng(0)
+    grain = sum(
+        ndimage.zoom(rng.standard_normal((size // cell, size // cell)), cell, order=1) * weight
+        for cell, weight in ((32, 0.06), (8, 0.05), (2, 0.04))
+    )
+    image = np.clip(colours * (shade * (1 + grain))[..., None], 0, 1)
+    matplotlib.image.imsave(path, image)
+
+
+def footprint_corners(
+    footprint: VehicleFootprint, x: float, y: float, yaw: float,
+) -> list[tuple[float, float]]:
+    """Footprint rectangle corners in scene XY for a chassis pose."""
+    cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+    local = (
+        (-footprint.negative_x_m, -footprint.half_width_m),
+        (footprint.positive_x_m, -footprint.half_width_m),
+        (footprint.positive_x_m, footprint.half_width_m),
+        (-footprint.negative_x_m, footprint.half_width_m),
+    )
+    return [(x + u * cos_yaw - v * sin_yaw, y + u * sin_yaw + v * cos_yaw) for u, v in local]
+
+
+def write_route_overlay(
+    scene: SceneGrid, samples: list[TrajectorySample], path: Path,
+    vehicle_name: str = "Bulldozer", *, footprint: VehicleFootprint | None = None,
+) -> None:
     """Show the measured route over semantic classes, or heights for v1 scenes."""
     import matplotlib
 
     matplotlib.use("Agg")
+    import matplotlib.patheffects as path_effects
+    from matplotlib.patches import Polygon
     import matplotlib.pyplot as plt
 
     figure, axes = plt.subplots(figsize=(8, 7))
@@ -247,13 +346,25 @@ def write_route_overlay(scene: SceneGrid, samples: list[TrajectorySample], path:
         image = axes.imshow(indices, extent=extent, origin="upper", cmap=cmap, norm=norm)
         figure.colorbar(image, ax=axes, ticks=range(len(names)), label="Coarse semantic class")
         image.colorbar.ax.set_yticklabels(names)
+    if footprint is not None:
+        for sample, color, label in ((samples[0], "lime", "Start footprint"),
+                                     (samples[-1], "gold", "End footprint")):
+            axes.add_patch(Polygon(
+                footprint_corners(footprint, sample.x_m, sample.y_m, sample.yaw_rad),
+                closed=True, fill=False, edgecolor=color, linewidth=1.5,
+                linestyle="--", zorder=2, label=label,
+                path_effects=[path_effects.withStroke(linewidth=3, foreground="black")],
+            ))
+    # The white halo keeps the route readable over dark semantic classes.
     axes.plot([sample.x_m for sample in samples], [sample.y_m for sample in samples],
-              color="crimson", linewidth=2, label="Bulldozer route")
+              color="crimson", linewidth=2.5, label=f"{vehicle_name} route", zorder=3,
+              path_effects=[path_effects.withStroke(linewidth=5, foreground="white")])
     axes.scatter(samples[0].x_m, samples[0].y_m, color="lime", edgecolors="black",
-                 s=75, zorder=3, label="Start")
-    axes.scatter(samples[-1].x_m, samples[-1].y_m, color="dodgerblue", edgecolors="black",
-                 s=75, zorder=3, label="End")
-    axes.set(xlabel="Chrono X (m)", ylabel="Chrono Y (m)", title="GOOSE-Ex bulldozer traversal")
+                 s=75, zorder=4, label="Start")
+    axes.scatter(samples[-1].x_m, samples[-1].y_m, color="gold", edgecolors="black",
+                 s=75, zorder=4, label="End")
+    axes.set(xlabel="Chrono X (m)", ylabel="Chrono Y (m)",
+             title=f"GOOSE-Ex {vehicle_name.lower()} traversal")
     axes.set_xlim(-scene.size_x / 2, scene.size_x / 2)
     axes.set_ylim(-scene.size_y / 2, scene.size_y / 2)
     axes.set_aspect("equal")
