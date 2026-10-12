@@ -43,6 +43,20 @@ class RendererSelectionTest(unittest.TestCase):
             with self.subTest(value=value), patch.dict(os.environ, {"AES_IRRLICHT_DRIVER": value}):
                 self.assertEqual(demo_common._window_driver(), demo_common.SOFTWARE_DRIVER)
 
+    def test_large_windows_get_a_scaled_bitmap_font(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmp:
+            xml = demo_common.write_bitmap_font(Path(tmp), 58)
+            text = xml.read_text(encoding="utf-8")
+            self.assertTrue((Path(tmp) / "gui_font.png").is_file())
+        self.assertEqual(text.count("<c "), 95)  # every printable ASCII character
+        self.assertIn('c="&amp;"', text)
+        height = int(text.split('c="A" r="')[1].split('"')[0].split(", ")[3]) - \
+            int(text.split('c="A" r="')[1].split('"')[0].split(", ")[1])
+        self.assertGreaterEqual(height, 58)
+
     def test_fullscreen_uses_the_primary_monitor(self) -> None:
         two_monitors = (
             "Screen 0: minimum 320 x 200, current 5760 x 2160, maximum 16384 x 16384\n"

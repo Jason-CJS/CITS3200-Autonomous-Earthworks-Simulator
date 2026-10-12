@@ -80,8 +80,8 @@ python -m scenarios.goose_navigation.run_demo \
 ```
 
 Use W/S to drive, A/D to steer and Space to stop. Q/E swings the cab, R/F
-raises/lowers the boom, T/G extends/retracts the arm, Y/H curls/uncurls the
-bucket, and X resets articulation. In manual mode the selected vehicle's
+raises/lowers the boom, T/G extends/retracts the arm, Y/H tips the bucket
+in/out, and X resets articulation. In manual mode the selected vehicle's
 controls appear on screen; scripted runs hide the panel so it does not cover
 the vehicle. Each vehicle has its own starting view: the excavator's is set
 back so the raised boom and bucket stay in frame. Graphical runs colour the
@@ -124,6 +124,34 @@ The legacy bulldozer clearance remains 1.8 m on each side. The excavator uses
 2.0 m toward negative X, 5.5 m toward positive X and 1.7 m to either side of
 the chassis, covering the tracks and raised traversal boom/bucket. A valid
 bulldozer start may therefore be rejected for an excavator near the right edge.
+
+## Digging (excavator)
+
+`--mode dig` keeps the excavator in place and repeats a scripted cycle: the
+teeth touch down about 3 m ahead, drag towards the cab, roll up to scoop,
+swing left and tip the load out. Each repeat digs a little deeper. One cycle
+(14 s) is the default; each further cycle adds 12.5 s.
+
+```bash
+python -m scenarios.goose_navigation.run_demo \
+  --scene tests/fixtures/goose_label_viewer_real/scene.json \
+  --vehicle excavator --mode dig --start-x -4 --duration 39
+```
+
+Soil moves on the existing SCM terrain, not a granular solver: nodes under the
+bucket teeth are lowered into the bucket's load (up to 0.29 m3), and tipping
+the bucket lays that load down as loose soil that slumps to a 34 degree slope.
+The trench and pile are real SCM terrain afterwards; loose soil is 1.2 times
+the dug volume. Manual mode digs the same way: H rolls the bucket up to scoop
+and hold the load, and Y tips it back down, teeth first, to dig or to pour
+the load out. For an easier start, tap Z to scoop automatically in front of the
+cab and C to dump the load wherever the cab is facing; any arm key takes back
+control. Soil under any part of the bucket moves: into the bucket while it
+has room, and pushed aside into a ridge once it is full. The run manifest's
+`soil` entry records the dug, dumped and still-carried volumes. Runs that
+move soil also write `deformation_nodes.csv` and `deformation_summary.json`
+(the same export as the bulldozer hole-filling demo) and `soil_change.png`, a
+map of lowered (blue) and raised (red) soil.
 
 ## Outputs
 

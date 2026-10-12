@@ -10,7 +10,16 @@ import pychrono as chrono
 
 from src.demo_common import KeyboardState, axis, clamp, create_visual_system
 from src.scm_demo_terrain import SCMDemoTerrain
+from vehicles.excavator.articulation.dig_cycle import (
+    DUMP_DURATION_S,
+    SCOOP_DURATION_S,
+    dump_targets,
+    scoop_targets,
+)
 from vehicles.excavator.articulation.excavator_model import ExcavatorModel
+
+# Keys that move the arm by hand; pressing any of them cancels a Z/C motion.
+MANUAL_ARM_KEYS = ("q", "e", "r", "f", "t", "g", "y", "h", "x")
 
 
 class ExcavatorController:
@@ -19,6 +28,15 @@ class ExcavatorController:
         self.keyboard = keyboard
         self.calibration = calibration
         self.targets = [0.0, 0.0, 0.0, 0.0] if calibration else [0.0, 0.25, -0.45, 0.45]
+        self.motion = None  # (targets function, start pose, elapsed s, duration s)
+        self._held: set[str] = set()
+
+    def _tapped(self, key: str) -> bool:
+        """True only on the update where ``key`` goes down."""
+        down = self.keyboard.is_down(key)
+        tapped = down and key not in self._held
+        (self._held.add if down else self._held.discard)(key)
+        return tapped
 
     def update(self, frame_time: float) -> None:
         forward = axis(self.keyboard, "w", "s")
@@ -28,6 +46,20 @@ class ExcavatorController:
         if self.keyboard.is_down("space") or self.calibration:
             left = right = 0.0
         self.excavator.set_drive_speeds(clamp(left, -1.0, 1.0), clamp(right, -1.0, 1.0))
+
+        if any(self.keyboard.is_down(key) for key in MANUAL_ARM_KEYS):
+            self.motion = None  # hand control straight back to the arm keys
+        if self._tapped("z") and not self.calibration:
+            self.motion = (scoop_targets, tuple(self.targets), 0.0, SCOOP_DURATION_S)
+        elif self._tapped("c") and not self.calibration:
+            self.motion = (dump_targets, tuple(self.targets), 0.0, DUMP_DURATION_S)
+        if self.motion is not None:
+            targets_at, start, elapsed, duration = self.motion
+            elapsed += frame_time
+            self.targets = list(targets_at(elapsed, start))
+            self.motion = None if elapsed >= duration else (targets_at, start, elapsed, duration)
+            self.excavator.set_articulation_targets(*self.targets)
+            return
 
         self.targets[0] += axis(self.keyboard, "q", "e") * 0.70 * frame_time
         self.targets[1] += axis(self.keyboard, "r", "f") * 0.55 * frame_time
@@ -86,8 +118,9 @@ def main(argv: list[str] | None = None) -> int:
             "Q / E     Swing left / right",
             "R / F     Raise / lower boom",
             "T / G     Extend / retract arm",
-            "Y / H     Curl / uncurl bucket",
+            "Y / H     Tip bucket in / out",
             "X         Reset articulation",
+            "Z / C     Auto scoop / dump",
         ),
         null_driver=args.smoke_test,
     )

@@ -57,25 +57,13 @@ def add_joint_pin(body: chrono.ChBody, position: tuple[float, float, float],
 
 
 def style_track(chassis: chrono.ChBody, center: tuple[float, float, float]) -> None:
-    """A track loop with round idler/sprocket ends, shoes and rollers."""
+    """A track loop with round idler/sprocket ends and rollers; ``TrackShoes`` adds the shoes."""
     cx, cy, cz = center
     outer = 1 if cy > 0 else -1
     half_length, radius = 1.575, 0.325
     add_box_visual(chassis, (2 * half_length, 0.55, 0.65), center, TRACK)
     for end in (-1, 1):
         add_cylinder_visual(chassis, radius, 0.55, (cx + end * half_length, cy, cz), AXIS_Y, TRACK)
-    # Grouser shoes along the straight runs and around both ends.
-    for index in range(14):
-        x = cx - 1.45 + 2.9 * index / 13
-        for z in (cz - 0.36, cz + 0.36):
-            add_box_visual(chassis, (0.17, 0.60, 0.06), (x, cy, z), (0.20, 0.20, 0.19))
-    for end in (-1, 1):
-        for step in range(1, 5):
-            angle = math.pi * step / 5
-            x = cx + end * (half_length + 0.36 * math.sin(angle))
-            z = cz + 0.36 * math.cos(angle)
-            rotation = chrono.QuatFromAngleY(end * angle)
-            add_box_visual(chassis, (0.17, 0.60, 0.06), (x, cy, z), (0.20, 0.20, 0.19), rotation)
     # Track frame, rollers and end hubs on the outer face.
     face = cy + outer * 0.285
     add_box_visual(chassis, (2.8, 0.03, 0.30), (cx, face, cz), STEEL)
@@ -90,6 +78,71 @@ def style_track(chassis: chrono.ChBody, center: tuple[float, float, float]) -> N
                         AXIS_Y, STEEL)
     add_cylinder_visual(chassis, 0.10, 0.08, (cx - half_length, face + outer * 0.03, cz),
                         AXIS_Y, DEEP_YELLOW)
+
+
+TRACK_HALF_LENGTH_M = 1.575  # straight run, centre to idler/sprocket axle
+SHOE_LOOP_RADIUS_M = 0.36    # shoe centres around the idler and sprocket
+SHOE_SIZE_M = (0.17, 0.60, 0.06)  # along the loop, across the track, thickness
+SHOES_PER_TRACK = 40
+
+
+def shoe_poses(distance: float, count: int = SHOES_PER_TRACK) -> tuple[np.ndarray, np.ndarray]:
+    """Shoe centres (x, z) and outward normals around one track loop, track-local.
+
+    ``distance`` is how far the track has turned. Going forward, the bottom run
+    moves back towards the sprocket, over the rear wheel, forward along the top
+    and down round the front idler, as on a real crawler.
+    """
+    half, r = TRACK_HALF_LENGTH_M, SHOE_LOOP_RADIUS_M
+    straight, arc = 2 * half, np.pi * r
+    perimeter = 2 * (straight + arc)
+    p = (np.arange(count) * perimeter / count + distance) % perimeter
+    centres, normals = np.empty((count, 2)), np.empty((count, 2))
+    for k, q in enumerate(p):
+        if q < straight:                       # bottom run, moving back
+            centres[k], normals[k] = (half - q, -r), (0.0, -1.0)
+        elif q < straight + arc:               # round the rear sprocket
+            phi = (q - straight) / r
+            normals[k] = (-np.sin(phi), -np.cos(phi))
+            centres[k] = (-half + r * normals[k][0], r * normals[k][1])
+        elif q < 2 * straight + arc:           # top run, moving forward
+            centres[k], normals[k] = (-half + (q - straight - arc), r), (0.0, 1.0)
+        else:                                  # round the front idler
+            phi = (q - 2 * straight - arc) / r
+            normals[k] = (np.sin(phi), np.cos(phi))
+            centres[k] = (half + r * normals[k][0], r * normals[k][1])
+    return centres, normals
+
+
+_BOX_TRIANGLES = [(0, 1, 3), (0, 3, 2), (4, 6, 7), (4, 7, 5), (0, 4, 5), (0, 5, 1),
+                  (2, 3, 7), (2, 7, 6), (0, 2, 6), (0, 6, 4), (1, 5, 7), (1, 7, 3)]
+
+
+class TrackShoes:
+    """Grouser shoes that travel around a track loop as the track turns (display only)."""
+
+    def __init__(self, chassis: chrono.ChBody, center: tuple[float, float, float]) -> None:
+        self.center = np.array(center, dtype=float)
+        triangles = [(8 * k + a, 8 * k + b, 8 * k + c)
+                     for k in range(SHOES_PER_TRACK) for a, b, c in _BOX_TRIANGLES]
+        self.mesh = MutableMesh(chassis, 8 * SHOES_PER_TRACK, triangles, (0.20, 0.20, 0.19))
+        self.update(0.0)
+
+    def update(self, distance: float) -> None:
+        length, width, thickness = SHOE_SIZE_M
+        centres, normals = shoe_poses(distance)
+        tangents = np.stack((-normals[:, 1], normals[:, 0]), axis=1)
+        points = np.empty((SHOES_PER_TRACK, 8, 3))
+        corner = 0
+        for a in (-0.5, 0.5):          # along the loop
+            for b in (-0.5, 0.5):      # across the track
+                for c in (-0.5, 0.5):  # through the shoe
+                    xz = centres + a * length * tangents + c * thickness * normals
+                    points[:, corner, 0] = self.center[0] + xz[:, 0]
+                    points[:, corner, 1] = self.center[1] + b * width
+                    points[:, corner, 2] = self.center[2] + xz[:, 1]
+                    corner += 1
+        self.mesh.set_vertices(points.reshape(-1, 3))
 
 
 def style_track_rotor(rotor: chrono.ChBody) -> None:

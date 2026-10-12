@@ -65,6 +65,16 @@ class NavigationVehicle:
             model.set_articulation_targets(*EXCAVATOR_TARGETS)
         return model
 
+    def create_soil(self, terrain, model, scene, config: dict):
+        """Bucket digging and dumping for the excavator; the bulldozer pushes soil through SCM."""
+        if self.key != "excavator":
+            return None
+        from environments.terrain.goose_quality import scm_grid_spacing_from_scene
+        from vehicles.excavator.articulation.bucket_soil import BucketSoil, scm_node_spacing
+
+        requested = scm_grid_spacing_from_scene(scene.metadata, float(config["grid_spacing"]))
+        return BucketSoil(terrain, model, scm_node_spacing(scene.size_x, requested))
+
     def create_controller(self, model, keyboard):
         if self.key == "bulldozer":
             from src.bulldozer_main import BulldozerController
@@ -89,8 +99,8 @@ VEHICLES = {
     "excavator": NavigationVehicle(
         "excavator", "MathScavator9000 excavator", 1, EXCAVATOR_FOOTPRINT,
         ("Q / E     Swing left / right", "R / F     Raise / lower boom",
-         "T / G     Extend / retract arm", "Y / H     Curl / uncurl bucket",
-         "X         Reset articulation"),
+         "T / G     Extend / retract arm", "Y / H     Tip bucket in / out",
+         "X         Reset articulation", "Z / C     Auto scoop / dump"),
         # The standalone excavator demo's view: the boom and bucket face the
         # camera's right, so the whole arm stays in frame.
         camera_offset=(8.5, -11.0, 6.0),

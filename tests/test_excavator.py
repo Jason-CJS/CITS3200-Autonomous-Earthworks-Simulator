@@ -4,10 +4,11 @@ import hashlib
 from pathlib import Path
 import unittest
 
+import numpy as np
 import pychrono as chrono
 
 from vehicles.excavator.articulation.excavator_model import ASSET_DIR, ExcavatorModel
-from vehicles.excavator.articulation.excavator_visuals import HydraulicCylinder
+from vehicles.excavator.articulation.excavator_visuals import HydraulicCylinder, shoe_poses
 
 
 class ExcavatorAcceptanceTest(unittest.TestCase):
@@ -135,6 +136,23 @@ class ExcavatorAcceptanceTest(unittest.TestCase):
                 drawn = cylinder.base_body.TransformPointLocalToParent(vertex)
                 anchor = cylinder.rod_body.TransformPointLocalToParent(cylinder.rod_local)
                 self.assertLess((drawn - anchor).Length(), 0.05)
+
+    def test_track_shoes_travel_round_the_loop_as_the_tracks_turn(self) -> None:
+        centres, normals = shoe_poses(0.0)
+        moved, _ = shoe_poses(0.1)
+        bottom = (np.abs(centres[:, 1] + 0.36) < 1e-9) & (centres[:, 0] > -1.4)
+        np.testing.assert_allclose(moved[bottom, 0], centres[bottom, 0] - 0.1)  # bottom run moves back
+        np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1.0)
+        perimeter = 2 * (2 * 1.575 + np.pi * 0.36)
+        np.testing.assert_allclose(shoe_poses(perimeter)[0], centres, atol=1e-9)  # one full lap
+        excavator = ExcavatorModel(chrono.ChSystemSMC(), show_rigid_ground=False)
+        left = excavator.track_shoes[0].mesh.mesh.GetCoordsVertices()
+        before = (left[0].x, left[0].z)
+        excavator.set_drive_speeds(0.5, 0.5)
+        for _ in range(100):
+            excavator.advance(0.002)  # advance() refreshes the shoes itself
+        self.assertNotEqual(before, (left[0].x, left[0].z))
+
 
 if __name__ == "__main__":
     unittest.main()
