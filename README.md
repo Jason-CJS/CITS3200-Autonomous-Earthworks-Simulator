@@ -40,6 +40,7 @@ CITS3200-AES/
 ├── README.md              # This file — project overview and pointers
 ├── INSTALLATION.md        # Environment setup and dataset preparation
 ├── USER_GUIDE.md          # Running scenarios, demos, and tests
+├── ASSET_CREDITS.md       # Third-party asset licensing and credits
 ├── environment.yml        # Shared Conda environment and dependencies
 │
 ├── environments/
@@ -61,6 +62,7 @@ CITS3200-AES/
 │   └── goose_navigation/       # Scripted/manual bulldozer or excavator traversal demo
 │
 ├── scripts/                 # Every CLI tool here — see scripts/README.md
+├── src/                     # Shared demo helpers (camera/keyboard, standalone vehicle demos)
 │
 ├── tests/                   # Automated test suite
 ├── data/goose/              # Prepared GOOSE-Ex dataset (not in Git)

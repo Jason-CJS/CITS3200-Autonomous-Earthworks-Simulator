@@ -33,6 +33,7 @@ CITS3200-AES/
 │   ├── export_trees.py         # Tree placement export (real collision)
 │   ├── export_vegetation.py    # Generic vegetation placement export (visual only)
 │   └── inspect_outputs.py      # View previous run results without re-simulating
+├── src/                        # Shared demo helpers (camera/keyboard, standalone vehicle demos)
 ├── tests/                      # Automated test suite
 ├── data/goose/                 # Prepared GOOSE-Ex dataset (not in Git)
 ├── outputs/                    # All generated run outputs (not in Git)
