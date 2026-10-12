@@ -19,8 +19,10 @@ class BulldozerController:
         self.keyboard = keyboard
         self.blade = [0.0, 0.0]
 
-    def update(self, frame_time: float) -> None:
+    def update(self, frame_time: float, block_forward: bool = False) -> None:
         forward = axis(self.keyboard, "w", "s")
+        if block_forward and forward > 0.0:
+            forward = 0.0
         turn = axis(self.keyboard, "a", "d")
         left = 0.70 * forward + 0.48 * turn
         right = 0.70 * forward - 0.48 * turn

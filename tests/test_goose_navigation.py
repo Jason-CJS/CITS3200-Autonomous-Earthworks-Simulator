@@ -426,8 +426,11 @@ class SceneGridTests(unittest.TestCase):
                 self.bulldozer = bulldozer
                 self.blade = [0.0, 0.0]
 
-            def update(self, frame_time):
-                self.bulldozer.set_drive_speeds(0.6, 0.6)
+            def update(self, frame_time, block_forward=False):
+                self.bulldozer.set_drive_speeds(
+                    0.0 if block_forward else 0.6,
+                    0.0 if block_forward else 0.6,
+                )
 
         class FakeVisual:
             calls = 0

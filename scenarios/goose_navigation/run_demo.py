@@ -21,7 +21,7 @@ from scenarios.goose_navigation.vehicles import select_vehicle
 
 DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "environments/scene_config/alice_scm.json"
 
-# Simplified blade and tree clearance for the straight negative-X route.
+# Simplified blade and tree clearance for pre-contact obstacle detection.
 BLADE_HALF_DEPTH = 0.10
 BLADE_HALF_WIDTH = 1.95 / 2
 TREE_STOP_MARGIN = 0.10
@@ -119,17 +119,31 @@ def _tree_ahead_of_blade(
     trees: list[dict],
     trunk_radius: float,
 ) -> dict | None:
-    """Detect a trunk ahead of the blade on the straight negative-X route.
-
-    This is a pre-contact navigation stop, not a force-based impact.
-    """
+    """Detect a trunk immediately ahead of the blade in vehicle-relative XY."""
     blade = bulldozer.blade.GetPos()
+    chassis = bulldozer.chassis.GetPos()
+
+    forward_x = float(blade.x) - float(chassis.x)
+    forward_y = float(blade.y) - float(chassis.y)
+    forward_length = math.hypot(forward_x, forward_y)
+    if forward_length <= 1e-9:
+        return None
+
+    forward_x /= forward_length
+    forward_y /= forward_length
+    sideways_x, sideways_y = -forward_y, forward_x
+
     clearance = BLADE_HALF_DEPTH + trunk_radius + TREE_STOP_MARGIN
     lateral_limit = BLADE_HALF_WIDTH + trunk_radius + TREE_STOP_MARGIN
 
     for tree in trees:
-        distance_ahead = float(blade.x) - float(tree["x"])
-        lateral_distance = abs(float(blade.y) - float(tree["y"]))
+        relative_x = float(tree["x"]) - float(blade.x)
+        relative_y = float(tree["y"]) - float(blade.y)
+
+        distance_ahead = relative_x * forward_x + relative_y * forward_y
+        lateral_distance = abs(
+            relative_x * sideways_x + relative_y * sideways_y
+        )
 
         if 0 <= distance_ahead <= clearance and lateral_distance <= lateral_limit:
             return tree
@@ -210,9 +224,9 @@ def run_demo(args: argparse.Namespace) -> int:
         tree_bodies = create_trees(system, tree_path)
         print(f"Loaded {len(tree_bodies)} GOOSE trees.")
 
-        # Pre-contact obstacle stopping currently only supports the
-        # bulldozer's scripted straight-line route; see _tree_ahead_of_blade.
-        if selected.key == "bulldozer" and mode == "scripted":
+        # Bulldozer runs use the placement data for pre-contact obstacle
+        # handling. Excavator tree handling remains outside this issue.
+        if selected.key == "bulldozer":
             trunk_radius = DEFAULT_TREE_TRUNK_RADIUS
             tree_data = _load_tree_data(tree_path)
 
@@ -273,6 +287,7 @@ def run_demo(args: argparse.Namespace) -> int:
     render_stride = max(1, round(1 / (30 * step_size)))
     keyboard = controller = timer = None
     blocked_tree = None
+    encountered_tree_ids: set[int] = set()
     if visual is not None:
         # OpenGL draws far faster than real time; pace the run so it stays watchable.
         timer = chrono.ChRealtimeStepTimer()
@@ -300,13 +315,26 @@ def run_demo(args: argparse.Namespace) -> int:
                     break
 
                 if controller is not None:
-                    controller.update(render_stride * step_size)
+                    manual_tree = (
+                        _tree_ahead_of_blade(vehicle, tree_data, trunk_radius)
+                        if tree_data else None
+                    )
+                    if manual_tree is not None:
+                        encountered_tree_ids.add(int(manual_tree["tree_id"]))
+                    if selected.key == "bulldozer":
+                        controller.update(
+                            render_stride * step_size,
+                            block_forward=manual_tree is not None,
+                        )
+                    else:
+                        controller.update(render_stride * step_size)
                 visual.BeginScene()
                 visual.Render()
                 visual.EndScene()
 
-            # Stop before the imposed-motion drive moves into a tree.
-            if tree_data:
+            # Scripted traversal stops and finishes at an obstacle. Manual
+            # driving instead suppresses forward input and keeps running.
+            if tree_data and mode == "scripted":
                 blocked_tree = _tree_ahead_of_blade(
                     vehicle, tree_data, trunk_radius
                 )
@@ -419,11 +447,19 @@ def run_demo(args: argparse.Namespace) -> int:
     }
 
     if tree_bodies:
+        obstacle_handling = None
+        if tree_data:
+            obstacle_handling = (
+                "scripted_pre_contact_stop"
+                if mode == "scripted"
+                else "manual_pre_contact_forward_block"
+            )
         manifest["trees"] = {
             "placement_file": str(tree_path),
             "count": len(tree_bodies),
-            "obstacle_handling": "scripted_pre_contact_stop" if tree_data else None,
+            "obstacle_handling": obstacle_handling,
             "blocked_tree_id": blocked_tree["tree_id"] if blocked_tree is not None else None,
+            "encountered_tree_ids": sorted(encountered_tree_ids),
         }
 
     manifest_path.write_text(
