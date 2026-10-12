@@ -13,20 +13,11 @@ import pychrono.vehicle as veh
 
 
 SCRIPT_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_ROOT.parents[1]
-
-DEFAULT_SCM_CONFIG = (
-    SCRIPT_ROOT.parent
-    / "scene_config"
-    / "alice_scm.json"
-)
+REPO_ROOT = SCRIPT_ROOT.parent.parent
+DEFAULT_SCM_CONFIG = SCRIPT_ROOT.parent / "scene_config" / "alice_scm.json"
 
 if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(
-        0,
-        str(REPO_ROOT),
-    )
-
+    sys.path.insert(0, str(REPO_ROOT))
 
 if __package__:
     from .goose_quality import (
@@ -160,72 +151,20 @@ def create_terrain(
     return terrain
 
 
-def create_visualization(
-    system: chrono.ChSystemSMC,
-    scene: dict,
-):
+def create_visualization(system: chrono.ChSystemSMC, scene: dict):
     """Create the Irrlicht visualization."""
 
-    import pychrono.irrlicht as irr
+    from src.demo_common import create_visual_system
 
-    vis = irr.ChVisualSystemIrrlicht()
-
-    vis.SetWindowTitle(
-        "GOOSE - SCM Terrain"
+    camera_height = max(float(scene["height_max"]) + 12.0, 12.0)
+    camera_distance = max(float(scene["size_y"]) * 0.65, 15.0)
+    target_height = (float(scene["height_min"]) + float(scene["height_max"])) / 2
+    return create_visual_system(
+        system,
+        "GOOSE - SCM Terrain",
+        chrono.ChVector3d(0, -camera_distance, camera_height),
+        chrono.ChVector3d(0, 0, target_height),
     )
-
-    vis.SetWindowSize(
-        1280,
-        720,
-    )
-
-    vis.Initialize()
-
-    vis.AddLogo(
-        chrono.GetChronoDataFile(
-            "logo_chrono_alpha.png"
-        )
-    )
-
-    vis.AddSkyBox()
-
-    camera_height = max(
-        float(scene["height_max"])
-        + 12.0,
-        12.0,
-    )
-
-    camera_distance = max(
-        float(scene["size_y"])
-        * 0.65,
-        15.0,
-    )
-
-    target_height = (
-        float(scene["height_min"])
-        + float(scene["height_max"])
-    ) / 2
-
-    vis.AddCamera(
-        chrono.ChVector3d(
-            0,
-            -camera_distance,
-            camera_height,
-        ),
-        chrono.ChVector3d(
-            0,
-            0,
-            target_height,
-        ),
-    )
-
-    vis.AddLightDirectional()
-
-    vis.AttachSystem(
-        system
-    )
-
-    return vis
 
 
 def run_headless(
