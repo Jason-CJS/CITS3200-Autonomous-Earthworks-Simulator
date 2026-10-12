@@ -32,7 +32,11 @@ from scenarios.goose_navigation.traversal import (
     write_terrain_texture,
     write_trajectory,
 )
-from scenarios.goose_navigation.run_demo import parse_args, run_demo
+from scenarios.goose_navigation.run_demo import (
+    _scm_active_domain_geometry,
+    parse_args,
+    run_demo,
+)
 from scenarios.goose_navigation.vehicles import select_vehicle
 
 
@@ -128,6 +132,23 @@ class SceneGridTests(unittest.TestCase):
         top_left, bottom_right = image[:96, :96, :3].mean((0, 1)), image[160:, 160:, :3].mean((0, 1))
         self.assertGreater(top_left[1], top_left[0])  # green vegetation
         self.assertGreater(bottom_right[0], bottom_right[1])  # brown soil
+
+    def test_scm_active_domain_matches_vehicle_footprint(self) -> None:
+        bulldozer = select_vehicle("bulldozer")
+        excavator = select_vehicle("excavator")
+
+        bulldozer_center, bulldozer_dimensions = _scm_active_domain_geometry(
+            bulldozer.footprint
+        )
+        excavator_center, excavator_dimensions = _scm_active_domain_geometry(
+            excavator.footprint
+        )
+
+        np.testing.assert_allclose(bulldozer_center, (0.0, 0.0, 0.0))
+        np.testing.assert_allclose(bulldozer_dimensions, (6.0, 6.0, 4.0))
+
+        np.testing.assert_allclose(excavator_center, (1.75, 0.0, 0.0))
+        np.testing.assert_allclose(excavator_dimensions, (9.9, 5.8, 4.0))
 
     def test_each_vehicle_has_its_own_camera_framing(self) -> None:
         bulldozer, excavator = select_vehicle("bulldozer"), select_vehicle("excavator")
@@ -262,12 +283,16 @@ class SceneGridTests(unittest.TestCase):
             def Advance(self, step):
                 pass
 
+            def AddActiveDomain(self, body, center, dimensions):
+                pass
+
         class FakeBulldozer:
             def __init__(self, system, show_rigid_ground, initial_z_offset, initial_xy):
                 self.system = system
                 self.x, self.y = initial_xy
                 self.z = 1.0 + initial_z_offset
                 self.speed = 0.0
+                self.chassis = object()
 
             def set_blade_targets(self, lift, tilt):
                 pass
@@ -360,12 +385,16 @@ class SceneGridTests(unittest.TestCase):
             def Advance(self, step):
                 pass
 
+            def AddActiveDomain(self, body, center, dimensions):
+                pass
+
         class FakeBulldozer:
             def __init__(self, system, show_rigid_ground, initial_z_offset, initial_xy):
                 self.system = system
                 self.x, self.y = initial_xy
                 self.z = 1.0 + initial_z_offset
                 self.speed = 0.0
+                self.chassis = object()
 
             def set_blade_targets(self, lift, tilt):
                 pass
