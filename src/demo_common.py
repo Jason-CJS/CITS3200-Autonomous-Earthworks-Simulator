@@ -99,12 +99,17 @@ def create_visual_system(
     _set_linux_irrlicht_driver(visual, NULL_DRIVER if null_driver else _window_driver())
     width, height = WINDOW_WIDTH, WINDOW_HEIGHT
     if fullscreen and not null_driver:
+        # A normal window the size of the desktop, which the window manager is
+        # then asked to make fullscreen (below). Irrlicht's own exclusive mode
+        # takes over the display and input, so a stalled run could not be
+        # closed or switched away from.
         width, height = _desktop_size() or (width, height)
-        visual.EnableFullscreen(True)
     visual.SetWindowSize(width, height)
     visual.SetWindowTitle(title)
     visual.SetCameraVertical(chrono.CameraVerticalDir_Z)
     visual.Initialize()
+    if fullscreen and not null_driver:
+        _request_window_manager_fullscreen(visual)
     _allow_linux_non_power_of_two_textures(visual)
     visual.AddLogo()
     visual.AddSkyBox()
@@ -153,6 +158,74 @@ def _primary_monitor_size(xrandr_output: str) -> tuple[int, int] | None:
         return None
     _, width, height = ([m for m in monitors if m[0]] or monitors)[0]
     return int(width), int(height)
+
+
+class _X11VideoData(ctypes.Structure):
+    """The Linux OpenGL part of Irrlicht's ``SExposedVideoData``."""
+
+    _fields_ = [("display", ctypes.c_void_p), ("context", ctypes.c_void_p),
+                ("window", ctypes.c_ulong)]
+
+
+class _XClientMessageEvent(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("serial", ctypes.c_ulong), ("send_event", ctypes.c_int),
+                ("display", ctypes.c_void_p), ("window", ctypes.c_ulong),
+                ("message_type", ctypes.c_ulong), ("format", ctypes.c_int),
+                ("data", ctypes.c_long * 5)]
+
+
+def _request_window_manager_fullscreen(visual: chronoirr.ChVisualSystemIrrlicht) -> bool:
+    """Ask the window manager to fullscreen the window, as a video player does.
+
+    Sends the standard ``_NET_WM_STATE_FULLSCREEN`` request, so Super, Alt+Tab
+    and Alt+F4 keep working. Returns False (leaving a desktop-sized window) if
+    the window cannot be found, for example with the CPU renderer.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        irrlicht = ctypes.CDLL(str(Path(chronoirr.__file__).resolve().parents[3] / "libIrrlicht.so"))
+        exposed = irrlicht._ZN3irr5video11CNullDriver19getExposedVideoDataEv
+        exposed.argtypes = [ctypes.c_void_p]
+        exposed.restype = ctypes.POINTER(_X11VideoData)
+        driver = visual.GetVideoDriver()
+        window = exposed(int(getattr(driver, "this", driver))).contents.window
+        if not window:
+            return False
+        x11 = ctypes.CDLL("libX11.so.6")
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x11.XInternAtom.restype = ctypes.c_ulong
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long,
+                                   ctypes.c_void_p]
+        x11.XFlush.argtypes = x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        display = x11.XOpenDisplay(None)
+        if not display:
+            return False
+        try:
+            message = _XClientMessageEvent()
+            message.type = 33  # ClientMessage
+            message.send_event = 1
+            message.display = display
+            message.window = window
+            message.message_type = x11.XInternAtom(display, b"_NET_WM_STATE", 0)
+            message.format = 32
+            message.data[0] = 1  # add the state
+            message.data[1] = x11.XInternAtom(display, b"_NET_WM_STATE_FULLSCREEN", 0)
+            message.data[3] = 1  # sent by a normal application
+            event = (ctypes.c_long * 24)()  # an XEvent is 24 longs
+            ctypes.memmove(event, ctypes.byref(message), ctypes.sizeof(message))
+            redirect_and_notify = (1 << 20) | (1 << 19)
+            x11.XSendEvent(display, x11.XDefaultRootWindow(display), 0, redirect_and_notify, event)
+            x11.XFlush(display)
+        finally:
+            x11.XCloseDisplay(display)
+        return True
+    except (OSError, AttributeError, ValueError):
+        return False
 
 
 def _desktop_size() -> tuple[int, int] | None:
