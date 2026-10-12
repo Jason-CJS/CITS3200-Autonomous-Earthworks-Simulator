@@ -26,6 +26,12 @@ BLADE_HALF_DEPTH = 0.10
 BLADE_HALF_WIDTH = 1.95 / 2
 TREE_STOP_MARGIN = 0.10
 
+# Limit SCM ray casting to the area around the active vehicle. Without an
+# explicit active domain, Chrono considers collision shapes across the entire
+# system, including every fixed tree trunk in a GOOSE scene.
+SCM_ACTIVE_DOMAIN_MARGIN = 1.2
+SCM_ACTIVE_DOMAIN_HEIGHT = 4.0
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -47,6 +53,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--smoke-test", action="store_true",
                         help="use the null renderer and deterministic manual key inputs")
     return parser.parse_args(argv)
+
+
+def _scm_active_domain_geometry(footprint) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """Return a vehicle-centred SCM active domain from its validated footprint."""
+    x_min = -float(footprint.negative_x_m) - SCM_ACTIVE_DOMAIN_MARGIN
+    x_max = float(footprint.positive_x_m) + SCM_ACTIVE_DOMAIN_MARGIN
+    y_half = float(footprint.half_width_m) + SCM_ACTIVE_DOMAIN_MARGIN
+
+    center = (
+        (x_min + x_max) / 2.0,
+        0.0,
+        0.0,
+    )
+    dimensions = (
+        x_max - x_min,
+        2.0 * y_half,
+        SCM_ACTIVE_DOMAIN_HEIGHT,
+    )
+
+    return center, dimensions
 
 
 def _sample(vehicle, time_s: float) -> TrajectorySample:
@@ -199,6 +225,15 @@ def run_demo(args: argparse.Namespace) -> int:
 
     start_height = scene.height_at(args.start_x, args.start_y)
     vehicle = selected.create_model(system, (args.start_x, args.start_y), start_height)
+
+    active_center, active_dimensions = _scm_active_domain_geometry(
+        selected.footprint
+    )
+    terrain.AddActiveDomain(
+        vehicle.chassis,
+        chrono.ChVector3d(*active_center),
+        chrono.ChVector3d(*active_dimensions),
+    )
 
     if tree_data:
         _configure_vehicle_smc(vehicle, chrono)
