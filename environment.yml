@@ -13,3 +13,4 @@ dependencies:
   - "scipy>=1.11,<2"
   - matplotlib
   - pillow
+  - wget

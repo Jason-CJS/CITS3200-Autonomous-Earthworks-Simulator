@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 from argparse import Namespace
+import dataclasses
 import json
 import sys
 import tempfile
@@ -13,6 +14,11 @@ from unittest.mock import patch
 from pathlib import Path
 
 import numpy as np
+# The fake runs below wrap sys.modules in patch.dict, which also removes any
+# module first imported inside it. SciPy and Matplotlib have C extensions that
+# cannot be loaded twice in one process, so load the ones the exports use first.
+import matplotlib.pyplot  # noqa: F401
+import scipy.ndimage  # noqa: F401
 
 from environments import terrain as terrain_package
 from environments.terrain.goose_semantics import semantic_legend
@@ -21,10 +27,20 @@ from scenarios.goose_navigation.traversal import (
     SceneGrid,
     TrajectorySample,
     exact_steps,
+    footprint_corners,
     write_route_overlay,
+    write_terrain_texture,
     write_trajectory,
 )
-from scenarios.goose_navigation.run_demo import run_demo
+from scenarios.goose_navigation.run_demo import (
+    _scm_active_domain_geometry,
+    parse_args,
+    run_demo,
+)
+from scenarios.goose_navigation.vehicles import select_vehicle
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def make_scene(root: Path, version: int = 2) -> Path:
@@ -62,6 +78,86 @@ def make_scene(root: Path, version: int = 2) -> Path:
 
 
 class SceneGridTests(unittest.TestCase):
+    def test_vehicle_selection_defaults_to_bulldozer_and_rejects_unknown_names(self) -> None:
+        self.assertEqual(parse_args(["--scene", "scene.json"]).vehicle, "bulldozer")
+        self.assertEqual(parse_args(["--scene", "scene.json", "--vehicle", "excavator"]).vehicle,
+                         "excavator")
+        with self.assertRaisesRegex(ValueError, "vehicle must be bulldozer or excavator"):
+            select_vehicle("truck")
+        with patch("sys.stderr"), self.assertRaises(SystemExit) as error:
+            parse_args(["--scene", "scene.json", "--vehicle", "truck"])
+        self.assertEqual(error.exception.code, 2)
+
+    def test_excavator_route_uses_positive_x_and_its_extended_footprint(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            scene = SceneGrid.load(make_scene(Path(tmp)))
+            selected = select_vehicle("excavator")
+            scene.validate_route(-3, 1, 0.5, 2, footprint=selected.footprint,
+                                 direction=selected.direction)
+            # The rear fits here, but the extended boom would leave +X.
+            with self.assertRaisesRegex(ValueError, "excavator starting footprint"):
+                scene.validate_start(1, 0, footprint=selected.footprint)
+            # Both endpoints need the full boom/bucket clearance.
+            with self.assertRaisesRegex(ValueError, "scripted route or excavator footprint"):
+                scene.validate_route(-3, 0, 0.5, 10, footprint=selected.footprint,
+                                     direction=selected.direction)
+            with self.assertRaisesRegex(ValueError, "excavator starting footprint"):
+                scene.validate_start(-3, 3, footprint=selected.footprint)
+
+    def test_footprint_corners_follow_the_chassis_heading(self) -> None:
+        footprint = select_vehicle("excavator").footprint
+        corners = footprint_corners(footprint, 1.0, 2.0, 0.0)
+        np.testing.assert_allclose(corners, [(-1.0, 0.3), (6.5, 0.3), (6.5, 3.7), (-1.0, 3.7)])
+        # A quarter turn left puts the boom clearance along +Y.
+        turned = footprint_corners(footprint, 1.0, 2.0, np.pi / 2)
+        np.testing.assert_allclose(turned, [(2.7, 0.0), (2.7, 7.5), (-0.7, 7.5), (-0.7, 0.0)],
+                                   atol=1e-12)
+
+    def test_terrain_texture_keeps_grid_orientation_and_is_repeatable(self) -> None:
+        import matplotlib.image
+
+        scene = SceneGrid.load(REPO_ROOT / "tests/fixtures/goose_label_viewer_real/scene.json")
+        rows, cols = scene.heights.shape
+        # Vegetation only in the (xmin, ymax) corner: the image's top-left.
+        labels = np.full((rows, cols), scene.unobserved_id, dtype=np.uint8)
+        labels[: rows // 2, : cols // 2] = 1
+        scene = dataclasses.replace(scene, coarse_labels=labels)
+        with tempfile.TemporaryDirectory() as tmp:
+            first, second = Path(tmp) / "a.png", Path(tmp) / "b.png"
+            write_terrain_texture(scene, first, size=256)
+            write_terrain_texture(scene, second, size=256)
+            self.assertEqual(first.read_bytes(), second.read_bytes())
+            image = matplotlib.image.imread(first)
+        self.assertEqual(image.shape[:2], (256, 256))
+        top_left, bottom_right = image[:96, :96, :3].mean((0, 1)), image[160:, 160:, :3].mean((0, 1))
+        self.assertGreater(top_left[1], top_left[0])  # green vegetation
+        self.assertGreater(bottom_right[0], bottom_right[1])  # brown soil
+
+    def test_scm_active_domain_matches_vehicle_footprint(self) -> None:
+        bulldozer = select_vehicle("bulldozer")
+        excavator = select_vehicle("excavator")
+
+        bulldozer_center, bulldozer_dimensions = _scm_active_domain_geometry(
+            bulldozer.footprint
+        )
+        excavator_center, excavator_dimensions = _scm_active_domain_geometry(
+            excavator.footprint
+        )
+
+        np.testing.assert_allclose(bulldozer_center, (0.0, 0.0, 0.0))
+        np.testing.assert_allclose(bulldozer_dimensions, (6.0, 6.0, 4.0))
+
+        np.testing.assert_allclose(excavator_center, (1.75, 0.0, 0.0))
+        np.testing.assert_allclose(excavator_dimensions, (9.9, 5.8, 4.0))
+
+    def test_each_vehicle_has_its_own_camera_framing(self) -> None:
+        bulldozer, excavator = select_vehicle("bulldozer"), select_vehicle("excavator")
+        # The bulldozer keeps the original Issue #26 view.
+        self.assertEqual(bulldozer.camera_offset, (4.0, -10.0, 7.0))
+        self.assertEqual(bulldozer.camera_target_offset, (-1.0, 0.0, 0.0))
+        # The excavator aims ahead of the start, where its boom and bucket are.
+        self.assertGreater(excavator.camera_target_offset[0], 0)
+
     def test_chrono_coordinates_follow_manifest_grid_orientation(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             scene = SceneGrid.load(make_scene(Path(tmp)))
@@ -138,6 +234,13 @@ class SceneGridTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "map and legend disagree"):
                 SceneGrid.load(path)
 
+    def test_fullscreen_needs_a_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            args = Namespace(scene=make_scene(Path(tmp)), mode="scripted", headless=True,
+                             fullscreen=True, duration=None)
+            with self.assertRaisesRegex(ValueError, "--fullscreen needs a window"):
+                run_demo(args)
+
     def test_fixed_step_sampling_requires_exact_multiples(self) -> None:
         self.assertEqual(exact_steps(6.0, 0.002, "duration"), 3000)
         self.assertEqual(exact_steps(0.1, 0.002, "sample period"), 50)
@@ -171,10 +274,16 @@ class SceneGridTests(unittest.TestCase):
                 return self.time
 
         class FakeTerrain:
+            def SetMeshWireframe(self, wireframe):
+                pass
+
             def Synchronize(self, time):
                 pass
 
             def Advance(self, step):
+                pass
+
+            def AddActiveDomain(self, body, center, dimensions):
                 pass
 
         class FakeBulldozer:
@@ -183,6 +292,7 @@ class SceneGridTests(unittest.TestCase):
                 self.x, self.y = initial_xy
                 self.z = 1.0 + initial_z_offset
                 self.speed = 0.0
+                self.chassis = object()
 
             def set_blade_targets(self, lift, tilt):
                 pass
@@ -232,8 +342,8 @@ class SceneGridTests(unittest.TestCase):
                 rows = list(csv.DictReader(stream))
             self.assertEqual(manifest["status"], "completed")
             self.assertEqual(manifest["source_scene_format_version"], 2)
-            self.assertEqual(manifest["semantic_labels"]["coarse_map"],
-                             str(root / "semantic_coarse.npy"))
+            self.assertEqual(Path(manifest["semantic_labels"]["coarse_map"]).resolve(),
+            (root / "semantic_coarse.npy").resolve(),)
             self.assertEqual(manifest["semantic_labels"]["taxonomy"], "project-coarse-v1")
             self.assertAlmostEqual(manifest["displacement_m"], 1.0)
             self.assertEqual(len(rows), 5)  # Initial state and four half-second samples.
@@ -257,10 +367,25 @@ class SceneGridTests(unittest.TestCase):
                 return self.time
 
         class FakeTerrain:
+            textures = []
+
+            def SetMeshWireframe(self, wireframe):
+                pass
+
+            def SetTexture(self, path, scale_x, scale_y):
+                # The semantic texture must exist when the visual system binds it.
+                self.textures.append((Path(path).is_file(), scale_x, scale_y))
+
+            def SetColor(self, color):
+                pass
+
             def Synchronize(self, time):
                 pass
 
             def Advance(self, step):
+                pass
+
+            def AddActiveDomain(self, body, center, dimensions):
                 pass
 
         class FakeBulldozer:
@@ -269,6 +394,7 @@ class SceneGridTests(unittest.TestCase):
                 self.x, self.y = initial_xy
                 self.z = 1.0 + initial_z_offset
                 self.speed = 0.0
+                self.chassis = object()
 
             def set_blade_targets(self, lift, tilt):
                 pass
@@ -327,6 +453,7 @@ class SceneGridTests(unittest.TestCase):
 
         chrono = ModuleType("pychrono")
         chrono.ChVector3d = Vec
+        chrono.ChColor = lambda r, g, b: (r, g, b)
         chrono.ChRealtimeStepTimer = lambda: SimpleNamespace(Spin=lambda time: None)
         terrain_module = ModuleType("environments.terrain.goose_environment")
         terrain_module.create_system = FakeSystem
@@ -365,6 +492,7 @@ class SceneGridTests(unittest.TestCase):
             with (root / "out/trajectory.csv").open(newline="", encoding="utf-8") as stream:
                 rows = list(csv.DictReader(stream))
             self.assertEqual(manifest["mode"], "manual_keyboard")
+            self.assertEqual(FakeTerrain.textures, [(True, 1.0, 1.0)])
             self.assertEqual(manifest["status"], "completed")
             self.assertIsNone(manifest["requested_duration_s"])
             self.assertEqual([row["time_s"] for row in rows],
