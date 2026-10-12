@@ -22,12 +22,12 @@ CITS3200-AES/
 │   ├── excavator/
 │   └── bulldozer/
 ├── deformation/                # Terrain deformation export and output inspection
-├── labelling/                  # Semantic label registry and scene manifest export
+├── sensors/                    # GPS reference check; camera/LiDAR are future-team stretch goals
 ├── scenarios/
 │   ├── bulldozer_earthmoving/  # Scripted hole-filling scenario
 │   ├── goose_label_viewer/     # Semantic label visualisation
 │   └── goose_navigation/       # Scripted/manual bulldozer or excavator traversal demo
-├── scripts/
+├── scripts/                    # See scripts/README.md for the full index
 │   ├── download_goose_dataset.sh
 │   ├── goose_to_heightmaps.py  # Terrain conversion and Chrono launcher
 │   ├── export_trees.py         # Tree placement export (real collision)
@@ -35,7 +35,8 @@ CITS3200-AES/
 │   └── inspect_outputs.py      # View previous run results without re-simulating
 ├── tests/                      # Automated test suite
 ├── data/goose/                 # Prepared GOOSE-Ex dataset (not in Git)
-└── outputs/                    # All generated run outputs (not in Git)
+├── outputs/                    # All generated run outputs (not in Git)
+└── redundant-aarp/             # Archived pre-rescope AARP work, kept for record only
 ```
 
 ## 1. Generate and open a GOOSE terrain
